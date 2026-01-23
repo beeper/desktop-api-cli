@@ -17,7 +17,7 @@ import (
 
 var accountsContactsSearch = cli.Command{
 	Name:    "search",
-	Usage:   "Search contacts across on a specific account using the network's search API.\nOnly use for creating new chats.",
+	Usage:   "Search contacts on a specific account using the network's search API. Only use\nfor creating new chats.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{

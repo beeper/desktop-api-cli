@@ -15,3 +15,13 @@ func TestAssetsDownload(t *testing.T) {
 		"--url", "mxc://example.org/Q4x9CqGz1pB3Oa6XgJ",
 	)
 }
+
+func TestAssetsUpload(t *testing.T) {
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"assets", "upload",
+		"--content", "x",
+		"--file-name", "fileName",
+		"--mime-type", "mimeType",
+	)
+}

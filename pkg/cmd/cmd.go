@@ -101,6 +101,7 @@ func init() {
 				Category: "API RESOURCE",
 				Suggest:  true,
 				Commands: []*cli.Command{
+					&messagesUpdate,
 					&messagesList,
 					&messagesSearch,
 					&messagesSend,
@@ -112,6 +113,7 @@ func init() {
 				Suggest:  true,
 				Commands: []*cli.Command{
 					&assetsDownload,
+					&assetsUpload,
 				},
 			},
 			{
