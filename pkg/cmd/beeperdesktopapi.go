@@ -52,7 +52,7 @@ var search = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "query",
-			Usage:     "User-typed search text. Literal word matching (NOT semantic).",
+			Usage:     "User-typed search text. Literal word matching (non-semantic).",
 			Required:  true,
 			QueryPath: "query",
 		},

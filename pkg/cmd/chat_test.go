@@ -33,7 +33,6 @@ func TestChatsList(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "list",
-		"--account-id", "whatsapp",
 		"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 		"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 		"--cursor", "1725489123456|c29tZUltc2dQYWdl",

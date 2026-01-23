@@ -6,7 +6,18 @@ import (
 	"testing"
 
 	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/mocktest"
+	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/requestflag"
 )
+
+func TestMessagesUpdate(t *testing.T) {
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"messages", "update",
+		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+		"--message-id", "messageID",
+		"--text", "x",
+	)
+}
 
 func TestMessagesList(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
@@ -22,7 +33,6 @@ func TestMessagesSearch(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"messages", "search",
-		"--account-id", "whatsapp",
 		"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 		"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
@@ -46,6 +56,25 @@ func TestMessagesSend(t *testing.T) {
 		t,
 		"messages", "send",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+		"--attachment", "{uploadID: uploadID, duration: 0, fileName: fileName, mimeType: mimeType, size: {height: 0, width: 0}, type: gif}",
+		"--reply-to-message-id", "replyToMessageID",
+		"--text", "text",
+	)
+
+	// Check that inner flags have been set up correctly
+	requestflag.CheckInnerFlags(messagesSend)
+
+	// Alternative argument passing style using inner flags
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"messages", "send",
+		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+		"--attachment.uploadID", "uploadID",
+		"--attachment.duration", "0",
+		"--attachment.fileName", "fileName",
+		"--attachment.mimeType", "mimeType",
+		"--attachment.size", "{height: 0, width: 0}",
+		"--attachment.type", "gif",
 		"--reply-to-message-id", "replyToMessageID",
 		"--text", "text",
 	)

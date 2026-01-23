@@ -15,6 +15,31 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+var messagesUpdate = cli.Command{
+	Name:    "update",
+	Usage:   "Edit the text content of an existing message. Messages with attachments cannot\nbe edited.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:     "chat-id",
+			Usage:    "Unique identifier of the chat.",
+			Required: true,
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-id",
+			Required: true,
+		},
+		&requestflag.Flag[string]{
+			Name:     "text",
+			Usage:    "New text content for the message",
+			Required: true,
+			BodyPath: "text",
+		},
+	},
+	Action:          handleMessagesUpdate,
+	HideHelpCommand: true,
+}
+
 var messagesList = cli.Command{
 	Name:    "list",
 	Usage:   "List all messages in a chat with cursor-based pagination. Sorted by timestamp.",
@@ -105,7 +130,7 @@ var messagesSearch = cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:      "query",
-			Usage:     `Literal word search (NOT semantic). Finds messages containing these EXACT words in any order. Use single words users actually type, not concepts or phrases. Example: use "dinner" not "dinner plans", use "sick" not "health issues". If omitted, returns results filtered only by other parameters.`,
+			Usage:     `Literal word search (non-semantic). Finds messages containing these EXACT words in any order. Use single words users actually type, not concepts or phrases. Example: use "dinner" not "dinner plans", use "sick" not "health issues". If omitted, returns results filtered only by other parameters.`,
 			QueryPath: "query",
 		},
 		&requestflag.Flag[string]{
@@ -118,15 +143,20 @@ var messagesSearch = cli.Command{
 	HideHelpCommand: true,
 }
 
-var messagesSend = cli.Command{
+var messagesSend = requestflag.WithInnerFlags(cli.Command{
 	Name:    "send",
-	Usage:   "Send a text message to a specific chat. Supports replying to existing messages.\nReturns the sent message ID.",
+	Usage:   "Send a text message to a specific chat. Supports replying to existing messages.\nReturns a pending message ID.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:     "chat-id",
 			Usage:    "Unique identifier of the chat.",
 			Required: true,
+		},
+		&requestflag.Flag[map[string]any]{
+			Name:     "attachment",
+			Usage:    "Single attachment to send with the message",
+			BodyPath: "attachment",
 		},
 		&requestflag.Flag[string]{
 			Name:     "reply-to-message-id",
@@ -141,6 +171,83 @@ var messagesSend = cli.Command{
 	},
 	Action:          handleMessagesSend,
 	HideHelpCommand: true,
+}, map[string][]requestflag.HasOuterFlag{
+	"attachment": {
+		&requestflag.InnerFlag[string]{
+			Name:       "attachment.upload-id",
+			Usage:      "Upload ID from uploadAsset endpoint. Required to reference uploaded files.",
+			InnerField: "uploadID",
+		},
+		&requestflag.InnerFlag[float64]{
+			Name:       "attachment.duration",
+			Usage:      "Duration in seconds (optional override of cached value)",
+			InnerField: "duration",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "attachment.file-name",
+			Usage:      "Filename (optional override of cached value)",
+			InnerField: "fileName",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "attachment.mime-type",
+			Usage:      "MIME type (optional override of cached value)",
+			InnerField: "mimeType",
+		},
+		&requestflag.InnerFlag[map[string]any]{
+			Name:       "attachment.size",
+			Usage:      "Dimensions (optional override of cached value)",
+			InnerField: "size",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "attachment.type",
+			Usage:      "Special attachment type (gif, voiceNote, sticker). If omitted, auto-detected from mimeType",
+			InnerField: "type",
+		},
+	},
+})
+
+func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("message-id") && len(unusedArgs) > 0 {
+		cmd.Set("message-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	params := beeperdesktopapi.MessageUpdateParams{
+		ChatID: cmd.Value("chat-id").(string),
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Messages.Update(
+		ctx,
+		cmd.Value("message-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(os.Stdout, "messages update", obj, format, transform)
 }
 
 func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
