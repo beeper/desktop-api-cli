@@ -5,7 +5,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/mocktest"
+	"github.com/beeper/desktop-api-cli/internal/mocktest"
 )
 
 func TestFocus(t *testing.T) {
