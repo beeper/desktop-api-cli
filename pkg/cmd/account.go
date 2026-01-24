@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-go"
 	"github.com/beeper/desktop-api-go/option"
-	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/apiquery"
 	"github.com/tidwall/gjson"
 	"github.com/urfave/cli/v3"
 )

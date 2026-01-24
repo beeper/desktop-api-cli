@@ -2,13 +2,17 @@
 
 The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com/desktop-api/).
 
+<!-- x-release-please-start-version -->
+
 ## Installation
 
 ### Installing with Go
 
 ```sh
-go install 'github.com/stainless-sdks/beeper-desktop-api-cli/cmd/beeper-desktop-api@latest'
+go install 'github.com/beeper/desktop-api-cli/cmd/beeper-desktop-api@latest'
 ```
+
+<!-- x-release-please-end -->
 
 ### Running Locally
 

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/beeper/desktop-api-cli/pkg/cmd"
 	"github.com/beeper/desktop-api-go"
-	"github.com/stainless-sdks/beeper-desktop-api-cli/pkg/cmd"
 	"github.com/tidwall/gjson"
 )
 
