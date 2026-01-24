@@ -20,6 +20,16 @@ func TestAssetsUpload(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"assets", "upload",
+		"--file", "",
+		"--file-name", "fileName",
+		"--mime-type", "mimeType",
+	)
+}
+
+func TestAssetsUploadBase64(t *testing.T) {
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"assets", "upload-base64",
 		"--content", "x",
 		"--file-name", "fileName",
 		"--mime-type", "mimeType",

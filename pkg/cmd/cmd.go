@@ -114,6 +114,7 @@ func init() {
 				Commands: []*cli.Command{
 					&assetsDownload,
 					&assetsUpload,
+					&assetsUploadBase64,
 				},
 			},
 			{
