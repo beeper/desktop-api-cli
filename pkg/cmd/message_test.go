@@ -5,8 +5,8 @@ package cmd
 import (
 	"testing"
 
-	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/mocktest"
-	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/requestflag"
+	"github.com/beeper/desktop-api-cli/internal/mocktest"
+	"github.com/beeper/desktop-api-cli/internal/requestflag"
 )
 
 func TestMessagesUpdate(t *testing.T) {

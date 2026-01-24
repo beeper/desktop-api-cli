@@ -14,8 +14,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/beeper/desktop-api-cli/internal/jsonview"
 	"github.com/beeper/desktop-api-go/option"
-	"github.com/stainless-sdks/beeper-desktop-api-cli/internal/jsonview"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/itchyny/json2yaml"

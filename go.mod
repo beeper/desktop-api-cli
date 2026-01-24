@@ -1,4 +1,4 @@
-module github.com/stainless-sdks/beeper-desktop-api-cli
+module github.com/beeper/desktop-api-cli
 
 go 1.25
 
