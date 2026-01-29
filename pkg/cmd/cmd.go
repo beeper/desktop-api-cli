@@ -94,7 +94,17 @@ func init() {
 					&chatsCreate,
 					&chatsRetrieve,
 					&chatsList,
+					&chatsArchive,
 					&chatsSearch,
+				},
+			},
+			{
+				Name:     "chats:reminders",
+				Category: "API RESOURCE",
+				Suggest:  true,
+				Commands: []*cli.Command{
+					&chatsRemindersCreate,
+					&chatsRemindersDelete,
 				},
 			},
 			{
