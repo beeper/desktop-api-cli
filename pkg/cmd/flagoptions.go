@@ -2,11 +2,17 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
+	"net/http"
 	"os"
+	"reflect"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/beeper/desktop-api-cli/internal/apiform"
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
@@ -26,6 +32,136 @@ const (
 	ApplicationJSON
 	ApplicationOctetStream
 )
+
+func embedFiles(obj any) (any, error) {
+	v := reflect.ValueOf(obj)
+	result, err := embedFilesValue(v)
+	if err != nil {
+		return nil, err
+	}
+	return result.Interface(), nil
+}
+
+// Replace "@file.txt" with the file's contents inside a value
+func embedFilesValue(v reflect.Value) (reflect.Value, error) {
+	// Unwrap interface values to get the concrete type
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v, nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		if v.Len() == 0 {
+			return v, nil
+		}
+		result := reflect.MakeMap(v.Type())
+		iter := v.MapRange()
+		for iter.Next() {
+			key := iter.Key()
+			val := iter.Value()
+			newVal, err := embedFilesValue(val)
+			if err != nil {
+				return reflect.Value{}, err
+			}
+			result.SetMapIndex(key, newVal)
+		}
+		return result, nil
+
+	case reflect.Slice, reflect.Array:
+		if v.Len() == 0 {
+			return v, nil
+		}
+		result := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			newVal, err := embedFilesValue(v.Index(i))
+			if err != nil {
+				return reflect.Value{}, err
+			}
+			result.Index(i).Set(newVal)
+		}
+		return result, nil
+
+	case reflect.String:
+		s := v.String()
+
+		if literal, ok := strings.CutPrefix(s, "\\@"); ok {
+			// Allow for escaped @ signs if you don't want them to be treated as files
+			return reflect.ValueOf("@" + literal), nil
+		} else if filename, ok := strings.CutPrefix(s, "@data://"); ok {
+			// The "@data://" prefix is for files you explicitly want to upload
+			// as base64-encoded (even if the file itself is plain text)
+			content, err := os.ReadFile(filename)
+			if err != nil {
+				return v, err
+			}
+			return reflect.ValueOf(base64.StdEncoding.EncodeToString(content)), nil
+		} else if filename, ok := strings.CutPrefix(s, "@file://"); ok {
+			// The "@file://" prefix is for files that you explicitly want to
+			// upload as a string literal with backslash escapes (not base64
+			// encoded)
+			content, err := os.ReadFile(filename)
+			if err != nil {
+				return v, err
+			}
+			return reflect.ValueOf(string(content)), nil
+		} else if filename, ok := strings.CutPrefix(s, "@"); ok {
+			content, err := os.ReadFile(filename)
+			if err != nil {
+				// If the string is "@username", it's probably supposed to be a
+				// string literal and not a file reference. However, if the
+				// string looks like "@file.txt" or "@/tmp/file", then it's
+				// probably supposed to be a file.
+				probablyFile := strings.Contains(filename, ".") || strings.Contains(filename, "/")
+				if probablyFile {
+					// Give a useful error message if the user tried to upload a
+					// file, but the file couldn't be read (e.g. mistyped
+					// filename or permission error)
+					return v, err
+				}
+				// Fall back to the raw value if the user provided something
+				// like "@username" that's not intended to be a file.
+				return v, nil
+			}
+			// If the file looks like a plain text UTF8 file format, then use the contents directly.
+			if isUTF8TextFile(content) {
+				return reflect.ValueOf(string(content)), nil
+			}
+			// Otherwise it's a binary file, so encode it with base64
+			return reflect.ValueOf(base64.StdEncoding.EncodeToString(content)), nil
+		}
+		return v, nil
+
+	default:
+		return v, nil
+	}
+}
+
+// Guess whether a file's contents are binary (e.g. a .jpg or .mp3), as opposed
+// to plain text (e.g. .txt or .md).
+func isUTF8TextFile(content []byte) bool {
+	// Go's DetectContentType follows https://mimesniff.spec.whatwg.org/ and
+	// these are the sniffable content types that are plain text:
+	textTypes := []string{
+		"text/",
+		"application/json",
+		"application/xml",
+		"application/javascript",
+		"application/x-javascript",
+		"application/ecmascript",
+		"application/x-ecmascript",
+	}
+
+	contentType := http.DetectContentType(content)
+	for _, prefix := range textTypes {
+		if strings.HasPrefix(contentType, prefix) {
+			return utf8.Valid(content)
+		}
+	}
+	return false
+}
 
 func flagOptions(
 	cmd *cli.Command,
@@ -55,9 +191,7 @@ func flagOptions(
 		if err := yaml.Unmarshal(pipeData, &bodyData); err == nil {
 			if bodyMap, ok := bodyData.(map[string]any); ok {
 				if flagMap, ok := flagContents.Body.(map[string]any); ok {
-					for k, v := range flagMap {
-						bodyMap[k] = v
-					}
+					maps.Copy(bodyMap, flagMap)
 				} else {
 					bodyData = flagContents.Body
 				}
@@ -68,6 +202,22 @@ func flagOptions(
 	} else {
 		// No piped input, just use body flag values as a map
 		bodyData = flagContents.Body
+	}
+
+	// Embed files passed as "@file.jpg" in the request body, headers, and query:
+	bodyData, err := embedFiles(bodyData)
+	if err != nil {
+		return nil, err
+	}
+	if headersWithFiles, err := embedFiles(flagContents.Headers); err != nil {
+		return nil, err
+	} else {
+		flagContents.Headers = headersWithFiles.(map[string]any)
+	}
+	if queriesWithFiles, err := embedFiles(flagContents.Queries); err != nil {
+		return nil, err
+	} else {
+		flagContents.Queries = queriesWithFiles.(map[string]any)
 	}
 
 	querySettings := apiquery.QuerySettings{
