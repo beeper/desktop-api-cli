@@ -40,6 +40,15 @@ func TestChatsList(t *testing.T) {
 	)
 }
 
+func TestChatsArchive(t *testing.T) {
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"chats", "archive",
+		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+		"--archived=true",
+	)
+}
+
 func TestChatsSearch(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
