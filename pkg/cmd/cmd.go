@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/beeper/desktop-api-cli/internal/autocomplete"
 	docs "github.com/urfave/cli-docs/v3"
 	"github.com/urfave/cli/v3"
 )
@@ -145,10 +146,20 @@ func init() {
 					},
 				},
 			},
+			{
+				Name:            "__complete",
+				Hidden:          true,
+				HideHelpCommand: true,
+				Action:          autocomplete.ExecuteShellCompletion,
+			},
+			{
+				Name:            "@completion",
+				Hidden:          true,
+				HideHelpCommand: true,
+				Action:          autocomplete.OutputCompletionScript,
+			},
 		},
-		EnableShellCompletion:      true,
-		ShellCompletionCommandName: "@completion",
-		HideHelpCommand:            true,
+		HideHelpCommand: true,
 	}
 }
 
