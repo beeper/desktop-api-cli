@@ -99,6 +99,27 @@ var chatsList = cli.Command{
 	HideHelpCommand: true,
 }
 
+var chatsArchive = cli.Command{
+	Name:    "archive",
+	Usage:   "Archive or unarchive a chat. Set archived=true to move to archive,\narchived=false to move back to inbox",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:     "chat-id",
+			Usage:    "Unique identifier of the chat.",
+			Required: true,
+		},
+		&requestflag.Flag[bool]{
+			Name:     "archived",
+			Usage:    "True to archive, false to unarchive",
+			Default:  true,
+			BodyPath: "archived",
+		},
+	},
+	Action:          handleChatsArchive,
+	HideHelpCommand: true,
+}
+
 var chatsSearch = cli.Command{
 	Name:    "search",
 	Usage:   "Search chats by title/network or participants using Beeper Desktop's renderer\nalgorithm.",
@@ -285,6 +306,38 @@ func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 		iter := client.Chats.ListAutoPaging(ctx, params, options...)
 		return ShowJSONIterator(os.Stdout, "chats list", iter, format, transform)
 	}
+}
+
+func handleChatsArchive(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("chat-id") && len(unusedArgs) > 0 {
+		cmd.Set("chat-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	params := beeperdesktopapi.ChatArchiveParams{}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	return client.Chats.Archive(
+		ctx,
+		cmd.Value("chat-id").(string),
+		params,
+		options...,
+	)
 }
 
 func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
