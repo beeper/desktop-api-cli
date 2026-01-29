@@ -105,13 +105,13 @@ var messagesSearch = cli.Command{
 			Usage:     "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
 			QueryPath: "direction",
 		},
-		&requestflag.Flag[bool]{
+		&requestflag.Flag[any]{
 			Name:      "exclude-low-priority",
 			Usage:     "Exclude messages marked Low Priority by the user. Default: true. Set to false to include all.",
 			Default:   true,
 			QueryPath: "excludeLowPriority",
 		},
-		&requestflag.Flag[bool]{
+		&requestflag.Flag[any]{
 			Name:      "include-muted",
 			Usage:     "Include messages in chats marked as Muted by the user, which are usually less important. Default: true. Set to false if the user wants a more refined search.",
 			Default:   true,
