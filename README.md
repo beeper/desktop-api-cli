@@ -42,7 +42,7 @@ After cloning the git repository for this project, you can use the
 The CLI follows a resource-based command structure:
 
 ```sh
-beeper-desktop-api [resource] [command] [flags]
+beeper-desktop-api [resource] <command> [flags...]
 ```
 
 ```sh
@@ -64,7 +64,7 @@ beeper-desktop-api chats search \
 
 For details about specific commands, use the `--help` flag.
 
-## Global Flags
+### Global Flags
 
 - `--help` - Show command line usage
 - `--debug` - Enable debug logging (includes HTTP request/response details)
@@ -74,3 +74,43 @@ For details about specific commands, use the `--help` flag.
 - `--format-error` - Change the output format for errors (`auto`, `explore`, `json`, `jsonl`, `pretty`, `raw`, `yaml`)
 - `--transform` - Transform the data output using [GJSON syntax](https://github.com/tidwall/gjson/blob/master/SYNTAX.md)
 - `--transform-error` - Transform the error output using [GJSON syntax](https://github.com/tidwall/gjson/blob/master/SYNTAX.md)
+
+### Passing files as arguments
+
+To pass files to your API, you can use the `@myfile.ext` syntax:
+
+```bash
+beeper-desktop-api <command> --arg @abe.jpg
+```
+
+Files can also be passed inside JSON or YAML blobs:
+
+```bash
+beeper-desktop-api <command> --arg '{image: "@abe.jpg"}'
+# Equivalent:
+beeper-desktop-api <command> <<YAML
+arg:
+  image: "@abe.jpg"
+YAML
+```
+
+If you need to pass a string literal that begins with an `@` sign, you can
+escape the `@` sign to avoid accidentally passing a file.
+
+```bash
+beeper-desktop-api <command> --username '\@abe'
+```
+
+#### Explicit encoding
+
+For JSON endpoints, the CLI tool does filetype sniffing to determine whether the
+file contents should be sent as a string literal (for plain text files) or as a
+base64-encoded string literal (for binary files). If you need to explicitly send
+the file as either plain text or base64-encoded data, you can use
+`@file://myfile.txt` (for string encoding) or `@data://myfile.dat` (for
+base64-encoding). Note that absolute paths will begin with `@file://` or
+`@data://`, followed by a third `/` (for example, `@file:///tmp/file.txt`).
+
+```bash
+beeper-desktop-api <command> --arg @data://file.txt
+```
