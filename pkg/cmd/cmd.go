@@ -124,6 +124,7 @@ func init() {
 				Suggest:  true,
 				Commands: []*cli.Command{
 					&assetsDownload,
+					&assetsServe,
 					&assetsUpload,
 					&assetsUploadBase64,
 				},

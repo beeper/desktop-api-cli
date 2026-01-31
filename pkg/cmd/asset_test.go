@@ -16,6 +16,14 @@ func TestAssetsDownload(t *testing.T) {
 	)
 }
 
+func TestAssetsServe(t *testing.T) {
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"assets", "serve",
+		"--url", "x",
+	)
+}
+
 func TestAssetsUpload(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
