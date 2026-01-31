@@ -5,10 +5,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
 	"github.com/beeper/desktop-api-go"
+	"github.com/beeper/desktop-api-go/option"
+	"github.com/tidwall/gjson"
 	"github.com/urfave/cli/v3"
 )
 
@@ -85,12 +88,22 @@ func handleChatsRemindersCreate(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	return client.Chats.Reminders.New(
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.Reminders.New(
 		ctx,
 		cmd.Value("chat-id").(string),
 		params,
 		options...,
 	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(os.Stdout, "chats:reminders create", obj, format, transform)
 }
 
 func handleChatsRemindersDelete(ctx context.Context, cmd *cli.Command) error {
@@ -115,5 +128,15 @@ func handleChatsRemindersDelete(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	return client.Chats.Reminders.Delete(ctx, cmd.Value("chat-id").(string), options...)
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.Reminders.Delete(ctx, cmd.Value("chat-id").(string), options...)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(os.Stdout, "chats:reminders delete", obj, format, transform)
 }
