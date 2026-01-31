@@ -332,12 +332,22 @@ func handleChatsArchive(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	return client.Chats.Archive(
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.Archive(
 		ctx,
 		cmd.Value("chat-id").(string),
 		params,
 		options...,
 	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(os.Stdout, "chats archive", obj, format, transform)
 }
 
 func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {

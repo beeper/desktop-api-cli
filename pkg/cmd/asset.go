@@ -31,6 +31,22 @@ var assetsDownload = cli.Command{
 	HideHelpCommand: true,
 }
 
+var assetsServe = cli.Command{
+	Name:    "serve",
+	Usage:   "Stream a file given an mxc://, localmxc://, or file:// URL. Downloads first if\nnot cached. Supports Range requests for seeking in large files.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "url",
+			Usage:     "Asset URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
+			Required:  true,
+			QueryPath: "url",
+		},
+	},
+	Action:          handleAssetsServe,
+	HideHelpCommand: true,
+}
+
 var assetsUpload = cli.Command{
 	Name:    "upload",
 	Usage:   "Upload a file to a temporary location using multipart/form-data. Returns an\nuploadID that can be referenced when sending messages with attachments.",
@@ -115,6 +131,30 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 	format := cmd.Root().String("format")
 	transform := cmd.Root().String("transform")
 	return ShowJSON(os.Stdout, "assets download", obj, format, transform)
+}
+
+func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	params := beeperdesktopapi.AssetServeParams{}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		EmptyBody,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	return client.Assets.Serve(ctx, params, options...)
 }
 
 func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
