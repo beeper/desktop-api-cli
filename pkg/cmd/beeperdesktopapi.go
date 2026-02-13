@@ -47,7 +47,7 @@ var focus = cli.Command{
 
 var search = cli.Command{
 	Name:    "search",
-	Usage:   "Returns matching chats, participant name matches in groups, and the first page\nof messages in one call. Paginate messages via search-messages. Paginate chats\nvia search-chats. Uses the same sorting as the chat search in the app.",
+	Usage:   "Returns matching chats, participant name matches in groups, and the first page\nof messages in one call. Paginate messages via search-messages. Paginate chats\nvia search-chats.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
