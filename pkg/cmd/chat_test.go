@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/beeper/desktop-api-cli/internal/mocktest"
+	"github.com/beeper/desktop-api-cli/internal/requestflag"
 )
 
 func TestChatsCreate(t *testing.T) {
@@ -16,7 +17,31 @@ func TestChatsCreate(t *testing.T) {
 		"--participant-id", "string",
 		"--type", "single",
 		"--message-text", "messageText",
+		"--mode", "create",
 		"--title", "title",
+		"--user", "{id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}",
+		"--allow-invite=true",
+	)
+
+	// Check that inner flags have been set up correctly
+	requestflag.CheckInnerFlags(chatsCreate)
+
+	// Alternative argument passing style using inner flags
+	mocktest.TestRunMockTestWithFlags(
+		t,
+		"chats", "create",
+		"--account-id", "accountID",
+		"--participant-id", "string",
+		"--type", "single",
+		"--message-text", "messageText",
+		"--mode", "create",
+		"--title", "title",
+		"--user.id", "id",
+		"--user.email", "email",
+		"--user.full-name", "fullName",
+		"--user.phone-number", "phoneNumber",
+		"--user.username", "username",
+		"--allow-invite=true",
 	)
 }
 
