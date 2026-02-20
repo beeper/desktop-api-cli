@@ -15,19 +15,63 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-var chatsCreate = cli.Command{
+var chatsCreate = requestflag.WithInnerFlags(cli.Command{
 	Name:    "create",
 	Usage:   "Create a single/group chat (mode='create') or start a direct chat from merged\nuser data (mode='start').",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[map[string]any]{
 			Name:     "chat",
+			Required: true,
 			BodyRoot: true,
 		},
 	},
 	Action:          handleChatsCreate,
 	HideHelpCommand: true,
-}
+}, map[string][]requestflag.HasOuterFlag{
+	"chat": {
+		&requestflag.InnerFlag[string]{
+			Name:       "chat.account-id",
+			Usage:      "Account to create or start the chat on.",
+			InnerField: "accountID",
+		},
+		&requestflag.InnerFlag[bool]{
+			Name:       "chat.allow-invite",
+			Usage:      "Whether invite-based DM creation is allowed when required by the platform. Used for mode='start'.",
+			InnerField: "allowInvite",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "chat.message-text",
+			Usage:      "Optional first message content if the platform requires it to create the chat.",
+			InnerField: "messageText",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "chat.mode",
+			Usage:      "Operation mode. Defaults to 'create' when omitted.",
+			InnerField: "mode",
+		},
+		&requestflag.InnerFlag[[]string]{
+			Name:       "chat.participant-ids",
+			Usage:      "Required when mode='create'. User IDs to include in the new chat.",
+			InnerField: "participantIDs",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "chat.title",
+			Usage:      "Optional title for group chats when mode='create'; ignored for single chats on most platforms.",
+			InnerField: "title",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "chat.type",
+			Usage:      "Required when mode='create'. 'single' requires exactly one participantID; 'group' supports multiple participants and optional title.",
+			InnerField: "type",
+		},
+		&requestflag.InnerFlag[map[string]any]{
+			Name:       "chat.user",
+			Usage:      "Required when mode='start'. Merged user-like contact payload used to resolve the best identifier.",
+			InnerField: "user",
+		},
+	},
+})
 
 var chatsRetrieve = cli.Command{
 	Name:    "retrieve",
