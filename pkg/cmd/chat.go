@@ -20,55 +20,77 @@ var chatsCreate = requestflag.WithInnerFlags(cli.Command{
 	Usage:   "Create a single/group chat (mode='create') or start a direct chat from merged\nuser data (mode='start').",
 	Suggest: true,
 	Flags: []cli.Flag{
-		&requestflag.Flag[map[string]any]{
-			Name:     "chat",
+		&requestflag.Flag[string]{
+			Name:     "account-id",
+			Usage:    "Account to create or start the chat on.",
 			Required: true,
-			BodyRoot: true,
+			BodyPath: "accountID",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "allow-invite",
+			Usage:    "Whether invite-based DM creation is allowed when required by the platform. Used for mode='start'.",
+			Default:  true,
+			BodyPath: "allowInvite",
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-text",
+			Usage:    "Optional first message content if the platform requires it to create the chat.",
+			BodyPath: "messageText",
+		},
+		&requestflag.Flag[string]{
+			Name:     "mode",
+			Usage:    "Operation mode. Defaults to 'create' when omitted.",
+			BodyPath: "mode",
+		},
+		&requestflag.Flag[[]string]{
+			Name:     "participant-id",
+			Usage:    "Required when mode='create'. User IDs to include in the new chat.",
+			BodyPath: "participantIDs",
+		},
+		&requestflag.Flag[string]{
+			Name:     "title",
+			Usage:    "Optional title for group chats when mode='create'; ignored for single chats on most platforms.",
+			BodyPath: "title",
+		},
+		&requestflag.Flag[string]{
+			Name:     "type",
+			Usage:    "Required when mode='create'. 'single' requires exactly one participantID; 'group' supports multiple participants and optional title.",
+			BodyPath: "type",
+		},
+		&requestflag.Flag[map[string]any]{
+			Name:     "user",
+			Usage:    "Required when mode='start'. Merged user-like contact payload used to resolve the best identifier.",
+			BodyPath: "user",
 		},
 	},
 	Action:          handleChatsCreate,
 	HideHelpCommand: true,
 }, map[string][]requestflag.HasOuterFlag{
-	"chat": {
+	"user": {
 		&requestflag.InnerFlag[string]{
-			Name:       "chat.account-id",
-			Usage:      "Account to create or start the chat on.",
-			InnerField: "accountID",
-		},
-		&requestflag.InnerFlag[bool]{
-			Name:       "chat.allow-invite",
-			Usage:      "Whether invite-based DM creation is allowed when required by the platform. Used for mode='start'.",
-			InnerField: "allowInvite",
+			Name:       "user.id",
+			Usage:      "Known user ID when available.",
+			InnerField: "id",
 		},
 		&requestflag.InnerFlag[string]{
-			Name:       "chat.message-text",
-			Usage:      "Optional first message content if the platform requires it to create the chat.",
-			InnerField: "messageText",
+			Name:       "user.email",
+			Usage:      "Email candidate.",
+			InnerField: "email",
 		},
 		&requestflag.InnerFlag[string]{
-			Name:       "chat.mode",
-			Usage:      "Operation mode. Defaults to 'create' when omitted.",
-			InnerField: "mode",
-		},
-		&requestflag.InnerFlag[[]string]{
-			Name:       "chat.participant-ids",
-			Usage:      "Required when mode='create'. User IDs to include in the new chat.",
-			InnerField: "participantIDs",
+			Name:       "user.full-name",
+			Usage:      "Display name hint used for ranking only.",
+			InnerField: "fullName",
 		},
 		&requestflag.InnerFlag[string]{
-			Name:       "chat.title",
-			Usage:      "Optional title for group chats when mode='create'; ignored for single chats on most platforms.",
-			InnerField: "title",
+			Name:       "user.phone-number",
+			Usage:      "Phone number candidate (E.164 preferred).",
+			InnerField: "phoneNumber",
 		},
 		&requestflag.InnerFlag[string]{
-			Name:       "chat.type",
-			Usage:      "Required when mode='create'. 'single' requires exactly one participantID; 'group' supports multiple participants and optional title.",
-			InnerField: "type",
-		},
-		&requestflag.InnerFlag[map[string]any]{
-			Name:       "chat.user",
-			Usage:      "Required when mode='start'. Merged user-like contact payload used to resolve the best identifier.",
-			InnerField: "user",
+			Name:       "user.username",
+			Usage:      "Username/handle candidate.",
+			InnerField: "username",
 		},
 	},
 })
