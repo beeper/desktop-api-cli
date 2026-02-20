@@ -4,4 +4,4 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-go run ./cmd/beeper-desktop-api "$@"
+go run ./cmd/beeper-desktop-cli "$@"

@@ -76,7 +76,7 @@ func TestRunMockTestWithFlags(t *testing.T, flags ...string) {
 	args := []string{"run", project, "--base-url", mockServerURL.String()}
 	args = append(args, flags...)
 
-	t.Logf("Testing command: beeper-desktop-api %s", strings.Join(args[4:], " "))
+	t.Logf("Testing command: beeper-desktop-cli %s", strings.Join(args[4:], " "))
 
 	cliCmd := exec.Command("go", args...)
 
