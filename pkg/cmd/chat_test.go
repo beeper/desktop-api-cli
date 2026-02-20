@@ -13,7 +13,14 @@ func TestChatsCreate(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "create",
-		"--chat", "{accountID: accountID, allowInvite: true, messageText: messageText, mode: create, participantIDs: [string], title: title, type: single, user: {id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}}",
+		"--account-id", "accountID",
+		"--allow-invite=true",
+		"--message-text", "messageText",
+		"--mode", "create",
+		"--participant-id", "string",
+		"--title", "title",
+		"--type", "single",
+		"--user", "{id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}",
 	)
 
 	// Check that inner flags have been set up correctly
@@ -23,14 +30,18 @@ func TestChatsCreate(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "create",
-		"--chat.account-id", "accountID",
-		"--chat.allow-invite=true",
-		"--chat.message-text", "messageText",
-		"--chat.mode", "create",
-		"--chat.participant-ids", "[string]",
-		"--chat.title", "title",
-		"--chat.type", "single",
-		"--chat.user", "{id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}",
+		"--account-id", "accountID",
+		"--allow-invite=true",
+		"--message-text", "messageText",
+		"--mode", "create",
+		"--participant-id", "string",
+		"--title", "title",
+		"--type", "single",
+		"--user.id", "id",
+		"--user.email", "email",
+		"--user.full-name", "fullName",
+		"--user.phone-number", "phoneNumber",
+		"--user.username", "username",
 	)
 }
 
