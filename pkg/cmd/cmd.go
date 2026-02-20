@@ -22,7 +22,7 @@ var (
 
 func init() {
 	Command = &cli.Command{
-		Name:    "beeper-desktop-api",
+		Name:    "beeper-desktop-cli",
 		Usage:   "CLI for the beeperdesktop API",
 		Suggest: true,
 		Version: Version,
@@ -39,7 +39,7 @@ func init() {
 			&cli.StringFlag{
 				Name:  "format",
 				Usage: "The format for displaying response data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "auto",
+				Value: "pretty",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))
@@ -50,7 +50,7 @@ func init() {
 			&cli.StringFlag{
 				Name:  "format-error",
 				Usage: "The format for displaying error data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "auto",
+				Value: "pretty",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))
@@ -83,6 +83,7 @@ func init() {
 				Category: "API RESOURCE",
 				Suggest:  true,
 				Commands: []*cli.Command{
+					&accountsContactsList,
 					&accountsContactsSearch,
 				},
 			},
@@ -108,6 +109,15 @@ func init() {
 				},
 			},
 			{
+				Name:     "chats:messages:reactions",
+				Category: "API RESOURCE",
+				Suggest:  true,
+				Commands: []*cli.Command{
+					&chatsMessagesReactionsDelete,
+					&chatsMessagesReactionsAdd,
+				},
+			},
+			{
 				Name:     "messages",
 				Category: "API RESOURCE",
 				Suggest:  true,
@@ -130,9 +140,17 @@ func init() {
 				},
 			},
 			{
+				Name:     "info",
+				Category: "API RESOURCE",
+				Suggest:  true,
+				Commands: []*cli.Command{
+					&infoRetrieve,
+				},
+			},
+			{
 				Name:            "@manpages",
 				Usage:           "Generate documentation for 'man'",
-				UsageText:       "beeper-desktop-api @manpages [-o beeper-desktop-api.1] [--gzip]",
+				UsageText:       "beeper-desktop-cli @manpages [-o beeper-desktop-cli.1] [--gzip]",
 				Hidden:          true,
 				Action:          generateManpages,
 				HideHelpCommand: true,
@@ -185,7 +203,7 @@ func generateManpages(ctx context.Context, c *cli.Command) error {
 		// handle error
 	}
 	if c.Bool("text") {
-		file, err := os.Create(filepath.Join(dir, "man1", "beeper-desktop-api.1"))
+		file, err := os.Create(filepath.Join(dir, "man1", "beeper-desktop-cli.1"))
 		if err != nil {
 			return err
 		}
@@ -195,7 +213,7 @@ func generateManpages(ctx context.Context, c *cli.Command) error {
 		}
 	}
 	if c.Bool("gzip") {
-		file, err := os.Create(filepath.Join(dir, "man1", "beeper-desktop-api.1.gz"))
+		file, err := os.Create(filepath.Join(dir, "man1", "beeper-desktop-cli.1.gz"))
 		if err != nil {
 			return err
 		}
