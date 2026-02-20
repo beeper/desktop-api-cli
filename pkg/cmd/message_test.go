@@ -47,7 +47,7 @@ func TestMessagesSearch(t *testing.T) {
 		"--limit", "20",
 		"--media-type", "any",
 		"--query", "dinner",
-		"--sender", "me",
+		"--sender", "sender",
 	)
 }
 
