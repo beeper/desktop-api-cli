@@ -6,12 +6,19 @@ The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com
 
 ## Installation
 
+### Installing with Homebrew
+
+```sh
+brew tap beeper/tap
+brew install beeper-desktop-cli
+```
+
 ### Installing with Go
 
 To test or install the CLI locally, you need [Go](https://go.dev/doc/install) version 1.22 or later installed.
 
 ```sh
-go install 'github.com/beeper/desktop-api-cli/cmd/beeper-desktop-api@latest'
+go install 'github.com/beeper/desktop-api-cli/cmd/beeper-desktop-cli@latest'
 ```
 
 Once you have run `go install`, the binary is placed in your Go bin directory:
@@ -42,11 +49,11 @@ After cloning the git repository for this project, you can use the
 The CLI follows a resource-based command structure:
 
 ```sh
-beeper-desktop-api [resource] <command> [flags...]
+beeper-desktop-cli [resource] <command> [flags...]
 ```
 
 ```sh
-beeper-desktop-api chats search \
+beeper-desktop-cli chats search \
   --account-id local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc \
   --account-id local-telegram_ba_QFrb5lrLPhO3OT5MFBeTWv0x4BI \
   --cursor '1725489123456|c29tZUltc2dQYWdl' \
@@ -80,15 +87,15 @@ For details about specific commands, use the `--help` flag.
 To pass files to your API, you can use the `@myfile.ext` syntax:
 
 ```bash
-beeper-desktop-api <command> --arg @abe.jpg
+beeper-desktop-cli <command> --arg @abe.jpg
 ```
 
 Files can also be passed inside JSON or YAML blobs:
 
 ```bash
-beeper-desktop-api <command> --arg '{image: "@abe.jpg"}'
+beeper-desktop-cli <command> --arg '{image: "@abe.jpg"}'
 # Equivalent:
-beeper-desktop-api <command> <<YAML
+beeper-desktop-cli <command> <<YAML
 arg:
   image: "@abe.jpg"
 YAML
@@ -98,7 +105,7 @@ If you need to pass a string literal that begins with an `@` sign, you can
 escape the `@` sign to avoid accidentally passing a file.
 
 ```bash
-beeper-desktop-api <command> --username '\@abe'
+beeper-desktop-cli <command> --username '\@abe'
 ```
 
 #### Explicit encoding
@@ -112,5 +119,5 @@ base64-encoding). Note that absolute paths will begin with `@file://` or
 `@data://`, followed by a third `/` (for example, `@file:///tmp/file.txt`).
 
 ```bash
-beeper-desktop-api <command> --arg @data://file.txt
+beeper-desktop-cli <command> --arg @data://file.txt
 ```
