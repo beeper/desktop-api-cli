@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 (2026-02-25)
+
+Full Changelog: [v0.1.0...v0.1.1](https://github.com/beeper/desktop-api-cli/compare/v0.1.0...v0.1.1)
+
+### Bug Fixes
+
+* pin formatting for headers to always use repeat/dot formats ([97ea814](https://github.com/beeper/desktop-api-cli/commit/97ea81439b3abccbcdaeb1fdd393e44e6a07aa6e))
+
+
+### Chores
+
+* update readme with better instructions for installing with homebrew ([b248f13](https://github.com/beeper/desktop-api-cli/commit/b248f13f6bf455a224a85fa97af2c17122c53101))
+
 ## 0.1.0 (2026-02-24)
 
 Full Changelog: [v0.0.1...v0.1.0](https://github.com/beeper/desktop-api-cli/compare/v0.0.1...v0.1.0)
