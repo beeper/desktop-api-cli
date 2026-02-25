@@ -9,8 +9,7 @@ The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com
 ### Installing with Homebrew
 
 ```sh
-brew tap beeper/tap
-brew install beeper-desktop-cli
+brew install beeper/tap/beeper-desktop-cli
 ```
 
 ### Installing with Go
