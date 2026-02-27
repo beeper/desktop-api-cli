@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2 (2026-02-27)
+
+Full Changelog: [v0.1.1...v0.1.2](https://github.com/beeper/desktop-api-cli/compare/v0.1.1...v0.1.2)
+
+### Bug Fixes
+
+* more gracefully handle empty stdin input ([d758018](https://github.com/beeper/desktop-api-cli/commit/d75801861b11dfd1cb5568e2b5da3eb0176b7c21))
+
+
+### Chores
+
+* zip READMEs as part of build artifact ([d1a1267](https://github.com/beeper/desktop-api-cli/commit/d1a12679c7c0366a8a50972010874bc9e9a6d643))
+
 ## 0.1.1 (2026-02-25)
 
 Full Changelog: [v0.1.0...v0.1.1](https://github.com/beeper/desktop-api-cli/compare/v0.1.0...v0.1.1)
