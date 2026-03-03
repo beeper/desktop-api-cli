@@ -12,6 +12,7 @@ func TestAccountsContactsList(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"accounts:contacts", "list",
+		"--access-token", "string",
 		"--account-id", "accountID",
 		"--cursor", "1725489123456|c29tZUltc2dQYWdl",
 		"--direction", "before",
@@ -24,6 +25,7 @@ func TestAccountsContactsSearch(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"accounts:contacts", "search",
+		"--access-token", "string",
 		"--account-id", "accountID",
 		"--query", "x",
 	)
