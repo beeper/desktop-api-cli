@@ -53,25 +53,22 @@ beeper-desktop-cli [resource] <command> [flags...]
 
 ```sh
 beeper-desktop-cli chats search \
-  --account-id local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc \
-  --account-id local-telegram_ba_QFrb5lrLPhO3OT5MFBeTWv0x4BI \
-  --cursor '1725489123456|c29tZUltc2dQYWdl' \
-  --direction before \
-  --inbox primary \
   --include-muted \
-  --last-activity-after 2019-12-27T18:11:19.117Z \
-  --last-activity-before 2019-12-27T18:11:19.117Z \
   --limit 3 \
-  --query x \
-  --scope titles \
-  --type single \
-  --unread-only
+  --type single
 ```
 
 For details about specific commands, use the `--help` flag.
 
-### Global Flags
+### Environment variables
 
+| Environment variable  | Description                                                                                           | Required |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | -------- |
+| `BEEPER_ACCESS_TOKEN` | Bearer access token obtained via OAuth2 PKCE flow or created in-app. Required for all API operations. | yes      |
+
+### Global flags
+
+- `--access-token` - Bearer access token obtained via OAuth2 PKCE flow or created in-app. Required for all API operations. (can also be set with `BEEPER_ACCESS_TOKEN` env var)
 - `--help` - Show command line usage
 - `--debug` - Enable debug logging (includes HTTP request/response details)
 - `--version`, `-v` - Show the CLI version

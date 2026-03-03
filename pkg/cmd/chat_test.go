@@ -13,6 +13,7 @@ func TestChatsCreate(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "create",
+		"--access-token", "string",
 		"--account-id", "accountID",
 		"--allow-invite=true",
 		"--message-text", "messageText",
@@ -49,6 +50,7 @@ func TestChatsRetrieve(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "retrieve",
+		"--access-token", "string",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		"--max-participant-count", "50",
 	)
@@ -58,6 +60,7 @@ func TestChatsList(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "list",
+		"--access-token", "string",
 		"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 		"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 		"--cursor", "1725489123456|c29tZUltc2dQYWdl",
@@ -69,6 +72,7 @@ func TestChatsArchive(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "archive",
+		"--access-token", "string",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		"--archived=true",
 	)
@@ -78,14 +82,15 @@ func TestChatsSearch(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "search",
+		"--access-token", "string",
 		"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 		"--account-id", "local-telegram_ba_QFrb5lrLPhO3OT5MFBeTWv0x4BI",
 		"--cursor", "1725489123456|c29tZUltc2dQYWdl",
 		"--direction", "before",
 		"--inbox", "primary",
 		"--include-muted=true",
-		"--last-activity-after", "2019-12-27T18:11:19.117Z",
-		"--last-activity-before", "2019-12-27T18:11:19.117Z",
+		"--last-activity-after", "'2019-12-27T18:11:19.117Z'",
+		"--last-activity-before", "'2019-12-27T18:11:19.117Z'",
 		"--limit", "1",
 		"--query", "x",
 		"--scope", "titles",

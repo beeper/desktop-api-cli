@@ -12,6 +12,7 @@ func TestFocus(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"focus",
+		"--access-token", "string",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		"--draft-attachment-path", "draftAttachmentPath",
 		"--draft-text", "draftText",
@@ -23,6 +24,7 @@ func TestSearch(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"search",
+		"--access-token", "string",
 		"--query", "x",
 	)
 }

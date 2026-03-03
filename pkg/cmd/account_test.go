@@ -12,5 +12,6 @@ func TestAccountsList(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"accounts", "list",
+		"--access-token", "string",
 	)
 }
