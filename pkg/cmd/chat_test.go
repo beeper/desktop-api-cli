@@ -88,6 +88,7 @@ func TestChatsList(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "chats", "list",
 			"--access-token", "string",
+			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",
@@ -122,6 +123,7 @@ func TestChatsSearch(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "chats", "search",
 			"--access-token", "string",
+			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-telegram_ba_QFrb5lrLPhO3OT5MFBeTWv0x4BI",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",

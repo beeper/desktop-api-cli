@@ -13,6 +13,7 @@ func TestAccountsContactsList(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "accounts:contacts", "list",
 			"--access-token", "string",
+			"--max-items", "10",
 			"--account-id", "accountID",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",
 			"--direction", "before",

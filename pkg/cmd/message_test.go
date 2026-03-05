@@ -37,6 +37,7 @@ func TestMessagesList(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "messages", "list",
 			"--access-token", "string",
+			"--max-items", "10",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",
 			"--direction", "before",
@@ -49,6 +50,7 @@ func TestMessagesSearch(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "messages", "search",
 			"--access-token", "string",
+			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
