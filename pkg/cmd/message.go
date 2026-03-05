@@ -60,6 +60,10 @@ var messagesList = cli.Command{
 			Usage:     "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
 			QueryPath: "direction",
 		},
+		&requestflag.Flag[int64]{
+			Name:  "max-items",
+			Usage: "The maximum number of items to return (use -1 for unlimited).",
+		},
 	},
 	Action:          handleMessagesList,
 	HideHelpCommand: true,
@@ -137,6 +141,10 @@ var messagesSearch = cli.Command{
 			Name:      "sender",
 			Usage:     "Filter by sender: 'me' (messages sent by the authenticated user), 'others' (messages sent by others), or a specific user ID string (user.id).",
 			QueryPath: "sender",
+		},
+		&requestflag.Flag[int64]{
+			Name:  "max-items",
+			Usage: "The maximum number of items to return (use -1 for unlimited).",
 		},
 	},
 	Action:          handleMessagesSearch,
@@ -297,7 +305,11 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 			params,
 			options...,
 		)
-		return ShowJSONIterator(os.Stdout, "messages list", iter, format, transform)
+		maxItems := int64(-1)
+		if cmd.IsSet("max-items") {
+			maxItems = cmd.Value("max-items").(int64)
+		}
+		return ShowJSONIterator(os.Stdout, "messages list", iter, format, transform, maxItems)
 	}
 }
 
@@ -335,7 +347,11 @@ func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
 		return ShowJSON(os.Stdout, "messages search", obj, format, transform)
 	} else {
 		iter := client.Messages.SearchAutoPaging(ctx, params, options...)
-		return ShowJSONIterator(os.Stdout, "messages search", iter, format, transform)
+		maxItems := int64(-1)
+		if cmd.IsSet("max-items") {
+			maxItems = cmd.Value("max-items").(int64)
+		}
+		return ShowJSONIterator(os.Stdout, "messages search", iter, format, transform, maxItems)
 	}
 }
 

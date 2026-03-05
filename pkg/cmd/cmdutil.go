@@ -350,7 +350,7 @@ type HasRawJSON interface {
 
 // For an iterator over different value types, display its values to the user in
 // different formats.
-func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterator[T], format string, transform string) error {
+func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterator[T], format string, transform string, itemsToDisplay int64) error {
 	if format == "explore" {
 		return jsonview.ExploreJSONStream(title, iter)
 	}
@@ -366,6 +366,9 @@ func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterat
 	output := []byte{}
 	numberOfNewlines := 0
 	for iter.Next() {
+		if itemsToDisplay == 0 {
+			break
+		}
 		item := iter.Current()
 		var obj gjson.Result
 		if hasRaw, ok := any(item).(HasRawJSON); ok {
@@ -383,6 +386,7 @@ func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterat
 		}
 
 		output = append(output, json...)
+		itemsToDisplay -= 1
 		numberOfNewlines += countTerminalLines(json, terminalWidth)
 
 		// If the output won't fit in the terminal window, stream it to a pager
@@ -409,6 +413,9 @@ func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterat
 		}
 
 		for iter.Next() {
+			if itemsToDisplay == 0 {
+				break
+			}
 			item := iter.Current()
 			var obj gjson.Result
 			if hasRaw, ok := any(item).(HasRawJSON); ok {
@@ -423,6 +430,7 @@ func ShowJSONIterator[T any](stdout *os.File, title string, iter jsonview.Iterat
 			if err := ShowJSON(pager, title, obj, format, transform); err != nil {
 				return err
 			}
+			itemsToDisplay -= 1
 		}
 		return iter.Err()
 	})
