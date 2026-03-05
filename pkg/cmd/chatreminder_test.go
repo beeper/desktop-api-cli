@@ -25,6 +25,7 @@ func TestChatsRemindersCreate(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats:reminders", "create",
+		"--access-token", "string",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		"--reminder.remind-at-ms", "0",
 		"--reminder.dismiss-on-incoming-message=true",

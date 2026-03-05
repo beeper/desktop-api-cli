@@ -31,6 +31,7 @@ func TestChatsCreate(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"chats", "create",
+		"--access-token", "string",
 		"--account-id", "accountID",
 		"--allow-invite=true",
 		"--message-text", "messageText",

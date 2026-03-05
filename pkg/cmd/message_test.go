@@ -72,6 +72,7 @@ func TestMessagesSend(t *testing.T) {
 	mocktest.TestRunMockTestWithFlags(
 		t,
 		"messages", "send",
+		"--access-token", "string",
 		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		"--attachment.upload-id", "uploadID",
 		"--attachment.duration", "0",
