@@ -9,22 +9,37 @@ import (
 )
 
 func TestFocus(t *testing.T) {
-	mocktest.TestRunMockTestWithFlags(
-		t,
-		"focus",
-		"--access-token", "string",
-		"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-		"--draft-attachment-path", "draftAttachmentPath",
-		"--draft-text", "draftText",
-		"--message-id", "messageID",
-	)
+	t.Run("regular flags", func(t *testing.T) {
+		mocktest.TestRunMockTestWithFlags(
+			t, "focus",
+			"--access-token", "string",
+			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+			"--draft-attachment-path", "draftAttachmentPath",
+			"--draft-text", "draftText",
+			"--message-id", "messageID",
+		)
+	})
+
+	t.Run("piping data", func(t *testing.T) {
+		// Test piping YAML data over stdin
+		pipeData := []byte("" +
+			"chatID: '!NCdzlIaMjZUmvmvyHU:beeper.com'\n" +
+			"draftAttachmentPath: draftAttachmentPath\n" +
+			"draftText: draftText\n" +
+			"messageID: messageID\n")
+		mocktest.TestRunMockTestWithPipeAndFlags(
+			t, pipeData, "focus",
+			"--access-token", "string",
+		)
+	})
 }
 
 func TestSearch(t *testing.T) {
-	mocktest.TestRunMockTestWithFlags(
-		t,
-		"search",
-		"--access-token", "string",
-		"--query", "x",
-	)
+	t.Run("regular flags", func(t *testing.T) {
+		mocktest.TestRunMockTestWithFlags(
+			t, "search",
+			"--access-token", "string",
+			"--query", "x",
+		)
+	})
 }
