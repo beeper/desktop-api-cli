@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -12,20 +13,23 @@ import (
 	"strings"
 
 	"github.com/beeper/desktop-api-cli/internal/autocomplete"
+	"github.com/beeper/desktop-api-cli/internal/requestflag"
 	docs "github.com/urfave/cli-docs/v3"
 	"github.com/urfave/cli/v3"
 )
 
 var (
-	Command *cli.Command
+	Command            *cli.Command
+	CommandErrorBuffer bytes.Buffer
 )
 
 func init() {
 	Command = &cli.Command{
-		Name:    "beeper-desktop-cli",
-		Usage:   "CLI for the beeperdesktop API",
-		Suggest: true,
-		Version: Version,
+		Name:      "beeper-desktop-cli",
+		Usage:     "CLI for the beeperdesktop API",
+		Suggest:   true,
+		Version:   Version,
+		ErrWriter: &CommandErrorBuffer,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "debug",
@@ -65,6 +69,11 @@ func init() {
 			&cli.StringFlag{
 				Name:  "transform-error",
 				Usage: "The GJSON transformation for errors.",
+			},
+			&requestflag.Flag[string]{
+				Name:    "access-token",
+				Usage:   "Bearer access token obtained via OAuth2 PKCE flow or created in-app. Required for all API operations.",
+				Sources: cli.EnvVars("BEEPER_ACCESS_TOKEN"),
 			},
 		},
 		Commands: []*cli.Command{

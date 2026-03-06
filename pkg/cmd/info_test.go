@@ -9,8 +9,10 @@ import (
 )
 
 func TestInfoRetrieve(t *testing.T) {
-	mocktest.TestRunMockTestWithFlags(
-		t,
-		"info", "retrieve",
-	)
+	t.Run("regular flags", func(t *testing.T) {
+		mocktest.TestRunMockTestWithFlags(
+			t, "info", "retrieve",
+			"--access-token", "string",
+		)
+	})
 }

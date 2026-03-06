@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0 (2026-03-06)
+
+Full Changelog: [v0.1.1...v0.2.0](https://github.com/beeper/desktop-api-cli/compare/v0.1.1...v0.2.0)
+
+### Features
+
+* add `--max-items` flag for paginated/streaming endpoints ([d2cd184](https://github.com/beeper/desktop-api-cli/commit/d2cd184ffe8bd8bef28411f35c23c9e0bbed958f))
+* add support for file downloads from binary response endpoints ([2e0b0a7](https://github.com/beeper/desktop-api-cli/commit/2e0b0a7080adef772b1c2b9f33d957f267d354ad))
+* improved documentation and flags for client options ([46e772c](https://github.com/beeper/desktop-api-cli/commit/46e772c72af1ea406d17ddaa7aeaf58e8b917a16))
+* support passing required body params through pipes ([4aa3f99](https://github.com/beeper/desktop-api-cli/commit/4aa3f993788d31566b0035a34134b4745ccd6643))
+
+
+### Bug Fixes
+
+* add missing client parameter flags to test cases ([83e3537](https://github.com/beeper/desktop-api-cli/commit/83e35370ae87614bba0c4deacdafcbd6614ed4ee))
+* add missing example parameters for test cases ([86b6743](https://github.com/beeper/desktop-api-cli/commit/86b6743be9efd4809bfdfbf02da29089121e680c))
+* avoid printing usage errors twice ([62fbdae](https://github.com/beeper/desktop-api-cli/commit/62fbdaedc3cf1724fc9102eae7dcb87e148aabb7))
+* fix for encoding arrays with `any` type items ([148ce2c](https://github.com/beeper/desktop-api-cli/commit/148ce2c1a8fe9b284fb29a4397c8904a0e366824))
+* more gracefully handle empty stdin input ([d758018](https://github.com/beeper/desktop-api-cli/commit/d75801861b11dfd1cb5568e2b5da3eb0176b7c21))
+
+
+### Chores
+
+* **ci:** skip uploading artifacts on stainless-internal branches ([858bf53](https://github.com/beeper/desktop-api-cli/commit/858bf533863314ae579e4bd8a3fc25ff1b0490d4))
+* **internal:** codegen related update ([2fcd536](https://github.com/beeper/desktop-api-cli/commit/2fcd53660f6195309b786d5b50aaeb22595a5404))
+* **test:** do not count install time for mock server timeout ([c89d312](https://github.com/beeper/desktop-api-cli/commit/c89d31244a0735738964709d9c15961c2f9a2a71))
+* zip READMEs as part of build artifact ([d1a1267](https://github.com/beeper/desktop-api-cli/commit/d1a12679c7c0366a8a50972010874bc9e9a6d643))
+
 ## 0.1.1 (2026-02-25)
 
 Full Changelog: [v0.1.0...v0.1.1](https://github.com/beeper/desktop-api-cli/compare/v0.1.0...v0.1.1)

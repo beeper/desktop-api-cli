@@ -136,6 +136,10 @@ var chatsList = cli.Command{
 			Usage:     "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
 			QueryPath: "direction",
 		},
+		&requestflag.Flag[int64]{
+			Name:  "max-items",
+			Usage: "The maximum number of items to return (use -1 for unlimited).",
+		},
 	},
 	Action:          handleChatsList,
 	HideHelpCommand: true,
@@ -230,6 +234,10 @@ var chatsSearch = cli.Command{
 			Name:      "unread-only",
 			Usage:     "Set to true to only retrieve chats that have unread messages",
 			QueryPath: "unreadOnly",
+		},
+		&requestflag.Flag[int64]{
+			Name:  "max-items",
+			Usage: "The maximum number of items to return (use -1 for unlimited).",
 		},
 	},
 	Action:          handleChatsSearch,
@@ -346,7 +354,11 @@ func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 		return ShowJSON(os.Stdout, "chats list", obj, format, transform)
 	} else {
 		iter := client.Chats.ListAutoPaging(ctx, params, options...)
-		return ShowJSONIterator(os.Stdout, "chats list", iter, format, transform)
+		maxItems := int64(-1)
+		if cmd.IsSet("max-items") {
+			maxItems = cmd.Value("max-items").(int64)
+		}
+		return ShowJSONIterator(os.Stdout, "chats list", iter, format, transform, maxItems)
 	}
 }
 
@@ -416,6 +428,10 @@ func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
 		return ShowJSON(os.Stdout, "chats search", obj, format, transform)
 	} else {
 		iter := client.Chats.SearchAutoPaging(ctx, params, options...)
-		return ShowJSONIterator(os.Stdout, "chats search", iter, format, transform)
+		maxItems := int64(-1)
+		if cmd.IsSet("max-items") {
+			maxItems = cmd.Value("max-items").(int64)
+		}
+		return ShowJSONIterator(os.Stdout, "chats search", iter, format, transform, maxItems)
 	}
 }
