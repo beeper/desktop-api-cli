@@ -42,7 +42,7 @@ func TestAssetsUpload(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
 			t, "assets", "upload",
 			"--access-token", "string",
-			"--file", "...",
+			"--file", "Example data",
 			"--file-name", "fileName",
 			"--mime-type", "mimeType",
 		)
@@ -51,6 +51,7 @@ func TestAssetsUpload(t *testing.T) {
 	t.Run("piping data", func(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("" +
+			"file: Example data\n" +
 			"fileName: fileName\n" +
 			"mimeType: mimeType\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
