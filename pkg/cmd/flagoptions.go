@@ -42,6 +42,9 @@ const (
 
 func embedFiles(obj any, embedStyle FileEmbedStyle) (any, error) {
 	v := reflect.ValueOf(obj)
+	if !v.IsValid() {
+		return nil, nil
+	}
 	result, err := embedFilesValue(v, embedStyle)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,10 @@ func embedFiles(obj any, embedStyle FileEmbedStyle) (any, error) {
 
 // Replace "@file.txt" with the file's contents inside a value
 func embedFilesValue(v reflect.Value, embedStyle FileEmbedStyle) (reflect.Value, error) {
+	if !v.IsValid() {
+		return v, nil
+	}
+
 	// Unwrap interface values to get the concrete type
 	if v.Kind() == reflect.Interface {
 		if v.IsNil() {

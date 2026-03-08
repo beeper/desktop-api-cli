@@ -212,6 +212,12 @@ func TestEmbedFiles(t *testing.T) {
 			want:    []any{1, 2, 3, 4, 5},
 			wantErr: false,
 		},
+		{
+			name:    "nil input unchanged",
+			input:   nil,
+			want:    nil,
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
