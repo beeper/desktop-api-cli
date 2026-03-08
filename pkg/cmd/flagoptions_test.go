@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
 )
 
 func TestIsUTF8TextFile(t *testing.T) {
@@ -240,6 +242,30 @@ func TestEmbedFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFlagOptionsWithEmptyPipedStdinAndNoFlags(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	})
+
+	cmd := &cli.Command{Name: "test"}
+
+	opts, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		EmptyBody,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Empty(t, opts)
 }
 
 func writeTestFile(t *testing.T, dir, filename, content string) {
