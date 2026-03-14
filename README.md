@@ -2,6 +2,8 @@
 
 The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com/desktop-api/).
 
+It is generated with [Stainless](https://www.stainless.com/).
+
 <!-- x-release-please-start-version -->
 
 ## Installation

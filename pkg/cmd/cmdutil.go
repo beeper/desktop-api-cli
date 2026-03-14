@@ -36,7 +36,9 @@ func getDefaultRequestOptions(cmd *cli.Command) []option.RequestOption {
 		option.WithHeader("X-Stainless-Package-Version", Version),
 		option.WithHeader("X-Stainless-Runtime", "cli"),
 		option.WithHeader("X-Stainless-CLI-Command", cmd.FullName()),
-		option.WithAccessToken(cmd.String("access-token")),
+	}
+	if cmd.IsSet("access-token") {
+		opts = append(opts, option.WithAccessToken(cmd.String("access-token")))
 	}
 
 	// Override base URL if the --base-url flag is provided
