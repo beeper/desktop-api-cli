@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0 (2026-03-14)
+
+Full Changelog: [v0.2.0...v0.3.0](https://github.com/beeper/desktop-api-cli/compare/v0.2.0...v0.3.0)
+
+### Features
+
+* **api:** manual updates ([0770d3a](https://github.com/beeper/desktop-api-cli/commit/0770d3ad509df79341bb1067de910a4ececdc07e))
+
+
+### Bug Fixes
+
+* fix for test cases with newlines in YAML and better error reporting ([c997492](https://github.com/beeper/desktop-api-cli/commit/c9974925c5d60aa534b8d619e51594cab0d622f0))
+* only set client options when the corresponding CLI flag or env var is explicitly set ([923b0eb](https://github.com/beeper/desktop-api-cli/commit/923b0ebdeeafe5aa17f416651d82ee20c643fd16))
+
+
+### Chores
+
+* **internal:** codegen related update ([2a0195e](https://github.com/beeper/desktop-api-cli/commit/2a0195ef893339e931434cc30db149f45a0479aa))
+
 ## 0.2.0 (2026-03-06)
 
 Full Changelog: [v0.1.1...v0.2.0](https://github.com/beeper/desktop-api-cli/compare/v0.1.1...v0.2.0)
