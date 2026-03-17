@@ -11,8 +11,9 @@ import (
 func TestFocus(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "focus",
+			t,
 			"--access-token", "string",
+			"focus",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--draft-attachment-path", "draftAttachmentPath",
 			"--draft-text", "draftText",
@@ -28,8 +29,9 @@ func TestFocus(t *testing.T) {
 			"draftText: draftText\n" +
 			"messageID: messageID\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "focus",
+			t, pipeData,
 			"--access-token", "string",
+			"focus",
 		)
 	})
 }
@@ -37,8 +39,9 @@ func TestFocus(t *testing.T) {
 func TestSearch(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "search",
+			t,
 			"--access-token", "string",
+			"search",
 			"--query", "x",
 		)
 	})

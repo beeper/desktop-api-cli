@@ -12,8 +12,9 @@ import (
 func TestChatsCreate(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "create",
+			t,
 			"--access-token", "string",
+			"chats", "create",
 			"--account-id", "accountID",
 			"--allow-invite=true",
 			"--message-text", "messageText",
@@ -31,8 +32,9 @@ func TestChatsCreate(t *testing.T) {
 
 		// Alternative argument passing style using inner flags
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "create",
+			t,
 			"--access-token", "string",
+			"chats", "create",
 			"--account-id", "accountID",
 			"--allow-invite=true",
 			"--message-text", "messageText",
@@ -66,8 +68,9 @@ func TestChatsCreate(t *testing.T) {
 			"  phoneNumber: phoneNumber\n" +
 			"  username: username\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "chats", "create",
+			t, pipeData,
 			"--access-token", "string",
+			"chats", "create",
 		)
 	})
 }
@@ -75,8 +78,9 @@ func TestChatsCreate(t *testing.T) {
 func TestChatsRetrieve(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "retrieve",
+			t,
 			"--access-token", "string",
+			"chats", "retrieve",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--max-participant-count", "50",
 		)
@@ -86,8 +90,9 @@ func TestChatsRetrieve(t *testing.T) {
 func TestChatsList(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "list",
+			t,
 			"--access-token", "string",
+			"chats", "list",
 			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
@@ -100,8 +105,9 @@ func TestChatsList(t *testing.T) {
 func TestChatsArchive(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "archive",
+			t,
 			"--access-token", "string",
+			"chats", "archive",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--archived=true",
 		)
@@ -111,8 +117,9 @@ func TestChatsArchive(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("archived: true")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "chats", "archive",
+			t, pipeData,
 			"--access-token", "string",
+			"chats", "archive",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		)
 	})
@@ -121,8 +128,9 @@ func TestChatsArchive(t *testing.T) {
 func TestChatsSearch(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats", "search",
+			t,
 			"--access-token", "string",
+			"chats", "search",
 			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-telegram_ba_QFrb5lrLPhO3OT5MFBeTWv0x4BI",

@@ -11,8 +11,9 @@ import (
 func TestAccountsList(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "accounts", "list",
+			t,
 			"--access-token", "string",
+			"accounts", "list",
 		)
 	})
 }

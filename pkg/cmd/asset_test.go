@@ -11,8 +11,9 @@ import (
 func TestAssetsDownload(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "assets", "download",
+			t,
 			"--access-token", "string",
+			"assets", "download",
 			"--url", "mxc://example.org/Q4x9CqGz1pB3Oa6XgJ",
 		)
 	})
@@ -21,8 +22,9 @@ func TestAssetsDownload(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("url: mxc://example.org/Q4x9CqGz1pB3Oa6XgJ")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "assets", "download",
+			t, pipeData,
 			"--access-token", "string",
+			"assets", "download",
 		)
 	})
 }
@@ -30,8 +32,9 @@ func TestAssetsDownload(t *testing.T) {
 func TestAssetsServe(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "assets", "serve",
+			t,
 			"--access-token", "string",
+			"assets", "serve",
 			"--url", "x",
 		)
 	})
@@ -40,8 +43,9 @@ func TestAssetsServe(t *testing.T) {
 func TestAssetsUpload(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "assets", "upload",
+			t,
 			"--access-token", "string",
+			"assets", "upload",
 			"--file", "Example data",
 			"--file-name", "fileName",
 			"--mime-type", "mimeType",
@@ -55,8 +59,9 @@ func TestAssetsUpload(t *testing.T) {
 			"fileName: fileName\n" +
 			"mimeType: mimeType\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "assets", "upload",
+			t, pipeData,
 			"--access-token", "string",
+			"assets", "upload",
 		)
 	})
 }
@@ -64,8 +69,9 @@ func TestAssetsUpload(t *testing.T) {
 func TestAssetsUploadBase64(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "assets", "upload-base64",
+			t,
 			"--access-token", "string",
+			"assets", "upload-base64",
 			"--content", "x",
 			"--file-name", "fileName",
 			"--mime-type", "mimeType",
@@ -79,8 +85,9 @@ func TestAssetsUploadBase64(t *testing.T) {
 			"fileName: fileName\n" +
 			"mimeType: mimeType\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "assets", "upload-base64",
+			t, pipeData,
 			"--access-token", "string",
+			"assets", "upload-base64",
 		)
 	})
 }

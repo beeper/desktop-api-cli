@@ -12,8 +12,9 @@ import (
 func TestMessagesUpdate(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "messages", "update",
+			t,
 			"--access-token", "string",
+			"messages", "update",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--message-id", "messageID",
 			"--text", "x",
@@ -24,8 +25,9 @@ func TestMessagesUpdate(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("text: x")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "messages", "update",
+			t, pipeData,
 			"--access-token", "string",
+			"messages", "update",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--message-id", "messageID",
 		)
@@ -35,8 +37,9 @@ func TestMessagesUpdate(t *testing.T) {
 func TestMessagesList(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "messages", "list",
+			t,
 			"--access-token", "string",
+			"messages", "list",
 			"--max-items", "10",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",
@@ -48,8 +51,9 @@ func TestMessagesList(t *testing.T) {
 func TestMessagesSearch(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "messages", "search",
+			t,
 			"--access-token", "string",
+			"messages", "search",
 			"--max-items", "10",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
 			"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
@@ -73,8 +77,9 @@ func TestMessagesSearch(t *testing.T) {
 func TestMessagesSend(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "messages", "send",
+			t,
 			"--access-token", "string",
+			"messages", "send",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--attachment", "{uploadID: uploadID, duration: 0, fileName: fileName, mimeType: mimeType, size: {height: 0, width: 0}, type: gif}",
 			"--reply-to-message-id", "replyToMessageID",
@@ -88,8 +93,9 @@ func TestMessagesSend(t *testing.T) {
 
 		// Alternative argument passing style using inner flags
 		mocktest.TestRunMockTestWithFlags(
-			t, "messages", "send",
+			t,
 			"--access-token", "string",
+			"messages", "send",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--attachment.upload-id", "uploadID",
 			"--attachment.duration", "0",
@@ -117,8 +123,9 @@ func TestMessagesSend(t *testing.T) {
 			"replyToMessageID: replyToMessageID\n" +
 			"text: text\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "messages", "send",
+			t, pipeData,
 			"--access-token", "string",
+			"messages", "send",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		)
 	})
