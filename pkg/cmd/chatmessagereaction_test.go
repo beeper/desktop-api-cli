@@ -11,8 +11,9 @@ import (
 func TestChatsMessagesReactionsDelete(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats:messages:reactions", "delete",
+			t,
 			"--access-token", "string",
+			"chats:messages:reactions", "delete",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--message-id", "messageID",
 			"--reaction-key", "x",
@@ -23,8 +24,9 @@ func TestChatsMessagesReactionsDelete(t *testing.T) {
 func TestChatsMessagesReactionsAdd(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats:messages:reactions", "add",
+			t,
 			"--access-token", "string",
+			"chats:messages:reactions", "add",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--message-id", "messageID",
 			"--reaction-key", "x",
@@ -38,8 +40,9 @@ func TestChatsMessagesReactionsAdd(t *testing.T) {
 			"reactionKey: x\n" +
 			"transactionID: transactionID\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "chats:messages:reactions", "add",
+			t, pipeData,
 			"--access-token", "string",
+			"chats:messages:reactions", "add",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--message-id", "messageID",
 		)

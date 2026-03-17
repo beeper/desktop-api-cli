@@ -12,8 +12,9 @@ import (
 func TestChatsRemindersCreate(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats:reminders", "create",
+			t,
 			"--access-token", "string",
+			"chats:reminders", "create",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--reminder", "{remindAtMs: 0, dismissOnIncomingMessage: true}",
 		)
@@ -25,8 +26,9 @@ func TestChatsRemindersCreate(t *testing.T) {
 
 		// Alternative argument passing style using inner flags
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats:reminders", "create",
+			t,
 			"--access-token", "string",
+			"chats:reminders", "create",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--reminder.remind-at-ms", "0",
 			"--reminder.dismiss-on-incoming-message=true",
@@ -40,8 +42,9 @@ func TestChatsRemindersCreate(t *testing.T) {
 			"  remindAtMs: 0\n" +
 			"  dismissOnIncomingMessage: true\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
-			t, pipeData, "chats:reminders", "create",
+			t, pipeData,
 			"--access-token", "string",
+			"chats:reminders", "create",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		)
 	})
@@ -50,8 +53,9 @@ func TestChatsRemindersCreate(t *testing.T) {
 func TestChatsRemindersDelete(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "chats:reminders", "delete",
+			t,
 			"--access-token", "string",
+			"chats:reminders", "delete",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 		)
 	})

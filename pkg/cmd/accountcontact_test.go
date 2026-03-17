@@ -11,8 +11,9 @@ import (
 func TestAccountsContactsList(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "accounts:contacts", "list",
+			t,
 			"--access-token", "string",
+			"accounts:contacts", "list",
 			"--max-items", "10",
 			"--account-id", "accountID",
 			"--cursor", "1725489123456|c29tZUltc2dQYWdl",
@@ -26,8 +27,9 @@ func TestAccountsContactsList(t *testing.T) {
 func TestAccountsContactsSearch(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
-			t, "accounts:contacts", "search",
+			t,
 			"--access-token", "string",
+			"accounts:contacts", "search",
 			"--account-id", "accountID",
 			"--query", "x",
 		)
