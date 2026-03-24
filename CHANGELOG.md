@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.0 (2026-03-24)
+
+Full Changelog: [v0.2.0...v0.3.0](https://github.com/beeper/desktop-api-cli/compare/v0.2.0...v0.3.0)
+
+### Features
+
+* **api:** manual updates ([0770d3a](https://github.com/beeper/desktop-api-cli/commit/0770d3ad509df79341bb1067de910a4ececdc07e))
+
+
+### Bug Fixes
+
+* avoid reading from stdin unless request body is form encoded or json ([040b555](https://github.com/beeper/desktop-api-cli/commit/040b5552613ef61130225e1f6cf81ab213d3a4a9))
+* better support passing client args in any position ([9100cf6](https://github.com/beeper/desktop-api-cli/commit/9100cf6e1ee5b4e7c7bcb262636fe3f458224cd4))
+* cli no longer hangs when stdin is attached to a pipe with empty input ([4842b1e](https://github.com/beeper/desktop-api-cli/commit/4842b1eb8edf8b1bef423780f23908e10f317631))
+* fix for test cases with newlines in YAML and better error reporting ([c997492](https://github.com/beeper/desktop-api-cli/commit/c9974925c5d60aa534b8d619e51594cab0d622f0))
+* improve linking behavior when developing on a branch not in the Go SDK ([c5964a1](https://github.com/beeper/desktop-api-cli/commit/c5964a17c6203b0de179d6c73c62665c8c33e364))
+* improved workflow for developing on branches ([e7e8488](https://github.com/beeper/desktop-api-cli/commit/e7e84887ed26fb2de032a1960ea881fb15c7b3c4))
+* no longer require an API key when building on production repos ([f38af96](https://github.com/beeper/desktop-api-cli/commit/f38af96666a55ffd4014c4f6190f5807df8b740e))
+* only set client options when the corresponding CLI flag or env var is explicitly set ([923b0eb](https://github.com/beeper/desktop-api-cli/commit/923b0ebdeeafe5aa17f416651d82ee20c643fd16))
+
+
+### Chores
+
+* **internal:** codegen related update ([2a0195e](https://github.com/beeper/desktop-api-cli/commit/2a0195ef893339e931434cc30db149f45a0479aa))
+* **internal:** tweak CI branches ([e727f07](https://github.com/beeper/desktop-api-cli/commit/e727f07b8f5f6792c0e67fd6a048cfdd91ab3ba3))
+* **internal:** update gitignore ([4b48c83](https://github.com/beeper/desktop-api-cli/commit/4b48c838b1e7afe2cf6545b0de8a4f3146e4e1dd))
+* **tests:** bump steady to v0.19.4 ([f4cc892](https://github.com/beeper/desktop-api-cli/commit/f4cc892fc179e321e0b75e381f68805fd732774e))
+* **tests:** bump steady to v0.19.5 ([097fdc8](https://github.com/beeper/desktop-api-cli/commit/097fdc85a1790b8687763f7e187645bbcba22f93))
+* **tests:** bump steady to v0.19.6 ([4af2dce](https://github.com/beeper/desktop-api-cli/commit/4af2dce0afd3741d445d75a85bf4523a9297dcbe))
+
+
+### Refactors
+
+* **tests:** switch from prism to steady ([e67e839](https://github.com/beeper/desktop-api-cli/commit/e67e839be04bd2da13cc0a941047a8552f95a32b))
+
 ## 0.2.0 (2026-03-06)
 
 Full Changelog: [v0.1.1...v0.2.0](https://github.com/beeper/desktop-api-cli/compare/v0.1.1...v0.2.0)
