@@ -53,10 +53,11 @@ var assetsUpload = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "file",
-			Usage:    "The file to upload (max 500 MB).",
-			Required: true,
-			BodyPath: "file",
+			Name:      "file",
+			Usage:     "The file to upload (max 500 MB).",
+			Required:  true,
+			BodyPath:  "file",
+			FileInput: true,
 		},
 		&requestflag.Flag[string]{
 			Name:     "file-name",
