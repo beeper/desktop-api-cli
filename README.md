@@ -2,8 +2,6 @@
 
 The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com/desktop-api/).
 
-It is generated with [Stainless](https://www.stainless.com/).
-
 <!-- x-release-please-start-version -->
 
 ## Installation
@@ -55,6 +53,7 @@ beeper-desktop-cli [resource] <command> [flags...]
 
 ```sh
 beeper-desktop-cli chats search \
+  --access-token 'My Access Token' \
   --include-muted \
   --limit 3 \
   --type single
