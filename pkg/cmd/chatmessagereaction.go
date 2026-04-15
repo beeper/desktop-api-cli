@@ -110,8 +110,9 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "chats:messages:reactions delete", obj, format, transform)
+	return ShowJSON(os.Stdout, os.Stderr, "chats:messages:reactions delete", obj, format, explicitFormat, transform)
 }
 
 func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) error {
@@ -154,6 +155,7 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "chats:messages:reactions add", obj, format, transform)
+	return ShowJSON(os.Stdout, os.Stderr, "chats:messages:reactions add", obj, format, explicitFormat, transform)
 }
