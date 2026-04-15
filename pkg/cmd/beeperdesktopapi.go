@@ -91,8 +91,9 @@ func handleFocus(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "focus", obj, format, transform)
+	return ShowJSON(os.Stdout, os.Stderr, "focus", obj, format, explicitFormat, transform)
 }
 
 func handleSearch(ctx context.Context, cmd *cli.Command) error {
@@ -125,6 +126,7 @@ func handleSearch(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "search", obj, format, transform)
+	return ShowJSON(os.Stdout, os.Stderr, "search", obj, format, explicitFormat, transform)
 }
