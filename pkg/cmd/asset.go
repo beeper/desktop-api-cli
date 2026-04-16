@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -132,7 +131,12 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 	format := cmd.Root().String("format")
 	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, os.Stderr, "assets download", obj, format, explicitFormat, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		Title:          "assets download",
+		Transform:      transform,
+	})
 }
 
 func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
@@ -191,7 +195,12 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 	format := cmd.Root().String("format")
 	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, os.Stderr, "assets upload", obj, format, explicitFormat, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		Title:          "assets upload",
+		Transform:      transform,
+	})
 }
 
 func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
@@ -226,5 +235,10 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 	format := cmd.Root().String("format")
 	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, os.Stderr, "assets upload-base64", obj, format, explicitFormat, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		Title:          "assets upload-base64",
+		Transform:      transform,
+	})
 }

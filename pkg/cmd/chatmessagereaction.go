@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -112,7 +111,12 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 	format := cmd.Root().String("format")
 	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, os.Stderr, "chats:messages:reactions delete", obj, format, explicitFormat, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		Title:          "chats:messages:reactions delete",
+		Transform:      transform,
+	})
 }
 
 func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) error {
@@ -157,5 +161,10 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 	format := cmd.Root().String("format")
 	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, os.Stderr, "chats:messages:reactions add", obj, format, explicitFormat, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		Title:          "chats:messages:reactions add",
+		Transform:      transform,
+	})
 }
