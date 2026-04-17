@@ -114,6 +114,7 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
 		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
 		Title:          "chats:messages:reactions delete",
 		Transform:      transform,
 	})
@@ -164,6 +165,7 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
 		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
 		Title:          "chats:messages:reactions add",
 		Transform:      transform,
 	})

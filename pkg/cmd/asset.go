@@ -134,6 +134,7 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
 		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
 		Title:          "assets download",
 		Transform:      transform,
 	})
@@ -198,6 +199,7 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
 		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
 		Title:          "assets upload",
 		Transform:      transform,
 	})
@@ -238,6 +240,7 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
 		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
 		Title:          "assets upload-base64",
 		Transform:      transform,
 	})
