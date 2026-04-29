@@ -46,7 +46,7 @@ func init() {
 			&cli.StringFlag{
 				Name:  "format",
 				Usage: "The format for displaying response data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "pretty",
+				Value: "json",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))
@@ -57,7 +57,7 @@ func init() {
 			&cli.StringFlag{
 				Name:  "format-error",
 				Usage: "The format for displaying error data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "pretty",
+				Value: "json",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))

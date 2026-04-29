@@ -16,7 +16,7 @@ import (
 
 var chatsMessagesReactionsDelete = cli.Command{
 	Name:    "delete",
-	Usage:   "Remove the authenticated user's reaction from an existing message.",
+	Usage:   "Remove the reaction added by the authenticated user from an existing message.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
