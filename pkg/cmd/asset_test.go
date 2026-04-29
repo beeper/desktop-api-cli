@@ -37,6 +37,7 @@ func TestAssetsServe(t *testing.T) {
 			"--access-token", "string",
 			"assets", "serve",
 			"--url", "x",
+			"--output", "/dev/null",
 		)
 	})
 }

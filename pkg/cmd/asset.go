@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -40,6 +41,11 @@ var assetsServe = cli.Command{
 			Usage:     "Asset URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
 			Required:  true,
 			QueryPath: "url",
+		},
+		&requestflag.Flag[string]{
+			Name:    "output",
+			Aliases: []string{"o"},
+			Usage:   "The file where the response contents will be stored. Use the value '-' to force output to stdout.",
 		},
 	},
 	Action:          handleAssetsServe,
@@ -161,7 +167,15 @@ func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	return client.Assets.Serve(ctx, params, options...)
+	response, err := client.Assets.Serve(ctx, params, options...)
+	if err != nil {
+		return err
+	}
+	message, err := writeBinaryResponse(response, os.Stdout, cmd.String("output"))
+	if message != "" {
+		fmt.Println(message)
+	}
+	return err
 }
 
 func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
