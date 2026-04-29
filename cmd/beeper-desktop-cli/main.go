@@ -23,8 +23,8 @@ func main() {
 		prepareForAutocomplete(app)
 	}
 
-	if baseURL, ok := os.LookupEnv("BEEPER_DESKTOP_BASE_URL"); ok {
-		if err := cmd.ValidateBaseURL(baseURL, "BEEPER_DESKTOP_BASE_URL"); err != nil {
+	if baseURL, ok := os.LookupEnv("BEEPER_BASE_URL"); ok {
+		if err := cmd.ValidateBaseURL(baseURL, "BEEPER_BASE_URL"); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 			os.Exit(1)
 		}

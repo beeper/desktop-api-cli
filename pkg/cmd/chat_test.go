@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/beeper/desktop-api-cli/internal/mocktest"
+	"github.com/beeper/desktop-api-cli/internal/requestflag"
 )
 
 func TestChatsCreate(t *testing.T) {
@@ -14,7 +15,38 @@ func TestChatsCreate(t *testing.T) {
 			t,
 			"--access-token", "string",
 			"chats", "create",
-			"--params", "{accountID: accountID, mode: start, user: {id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}, allowInvite: true, messageText: messageText}",
+			"--account-id", "accountID",
+			"--allow-invite=true",
+			"--message-text", "messageText",
+			"--mode", "start",
+			"--participant-id", "string",
+			"--title", "title",
+			"--type", "single",
+			"--user", "{id: id, email: email, fullName: fullName, phoneNumber: phoneNumber, username: username}",
+		)
+	})
+
+	t.Run("inner flags", func(t *testing.T) {
+		// Check that inner flags have been set up correctly
+		requestflag.CheckInnerFlags(chatsCreate)
+
+		// Alternative argument passing style using inner flags
+		mocktest.TestRunMockTestWithFlags(
+			t,
+			"--access-token", "string",
+			"chats", "create",
+			"--account-id", "accountID",
+			"--allow-invite=true",
+			"--message-text", "messageText",
+			"--mode", "start",
+			"--participant-id", "string",
+			"--title", "title",
+			"--type", "single",
+			"--user.id", "id",
+			"--user.email", "email",
+			"--user.full-name", "fullName",
+			"--user.phone-number", "phoneNumber",
+			"--user.username", "username",
 		)
 	})
 
@@ -22,15 +54,19 @@ func TestChatsCreate(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("" +
 			"accountID: accountID\n" +
+			"allowInvite: true\n" +
+			"messageText: messageText\n" +
 			"mode: start\n" +
+			"participantIDs:\n" +
+			"  - string\n" +
+			"title: title\n" +
+			"type: single\n" +
 			"user:\n" +
 			"  id: id\n" +
 			"  email: email\n" +
 			"  fullName: fullName\n" +
 			"  phoneNumber: phoneNumber\n" +
-			"  username: username\n" +
-			"allowInvite: true\n" +
-			"messageText: messageText\n")
+			"  username: username\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
 			t, pipeData,
 			"--access-token", "string",

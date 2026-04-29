@@ -14,19 +14,85 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-var chatsCreate = cli.Command{
+var chatsCreate = requestflag.WithInnerFlags(cli.Command{
 	Name:    "create",
-	Usage:   "Create a single/group chat (mode='create') or start a direct chat from merged\nuser data (mode='start').",
+	Usage:   "Create a direct or group chat with mode=\"create\", or use mode=\"start\" to resolve\na contact and open a direct chat.",
 	Suggest: true,
 	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:     "account-id",
+			Usage:    "Account to create or start the chat on.",
+			Required: true,
+			BodyPath: "accountID",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "allow-invite",
+			Usage:    "Only used for mode='start'. Whether invite-based DM creation is allowed when required by the platform.",
+			Default:  true,
+			BodyPath: "allowInvite",
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-text",
+			Usage:    "Optional first message content if the platform requires it to create the chat.",
+			BodyPath: "messageText",
+		},
+		&requestflag.Flag[string]{
+			Name:     "mode",
+			Usage:    "Operation mode. Use 'start' to resolve a user/contact and start a direct chat. Omit or set 'create' to create a chat directly.",
+			BodyPath: "mode",
+		},
+		&requestflag.Flag[[]string]{
+			Name:     "participant-id",
+			Usage:    "Required for create mode. Provide exactly one user ID for 'single' chats and one or more for 'group' chats.",
+			BodyPath: "participantIDs",
+		},
+		&requestflag.Flag[string]{
+			Name:     "title",
+			Usage:    "Optional title for group chats; ignored for single chats on most networks.",
+			BodyPath: "title",
+		},
+		&requestflag.Flag[string]{
+			Name:     "type",
+			Usage:    "Required for create mode. 'single' creates a direct message chat; 'group' creates a group chat.",
+			BodyPath: "type",
+		},
 		&requestflag.Flag[map[string]any]{
-			Name:     "params",
-			BodyRoot: true,
+			Name:     "user",
+			Usage:    "Required for mode='start'. Merged user-like contact payload used to resolve the best identifier.",
+			BodyPath: "user",
 		},
 	},
 	Action:          handleChatsCreate,
 	HideHelpCommand: true,
-}
+}, map[string][]requestflag.HasOuterFlag{
+	"user": {
+		&requestflag.InnerFlag[string]{
+			Name:       "user.id",
+			Usage:      "Known user ID when available.",
+			InnerField: "id",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.email",
+			Usage:      "Email candidate.",
+			InnerField: "email",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.full-name",
+			Usage:      "Display name hint used for ranking only.",
+			InnerField: "fullName",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.phone-number",
+			Usage:      "Phone number candidate (E.164 preferred).",
+			InnerField: "phoneNumber",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.username",
+			Usage:      "Username/handle candidate.",
+			InnerField: "username",
+		},
+	},
+})
 
 var chatsRetrieve = cli.Command{
 	Name:    "retrieve",
@@ -101,7 +167,7 @@ var chatsArchive = cli.Command{
 
 var chatsSearch = cli.Command{
 	Name:    "search",
-	Usage:   "Search chats by title/network or participants using Beeper Desktop's renderer\nalgorithm.",
+	Usage:   "Search chats by title, network, or participant names.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[[]string]{
@@ -255,8 +321,11 @@ func handleChatsRetrieve(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	obj := gjson.ParseBytes(res)
-	format := cmd.Root().String("format")
+	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	return ShowJSON(obj, ShowJSONOpts{
 		ExplicitFormat: explicitFormat,
@@ -288,8 +357,11 @@ func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	format := cmd.Root().String("format")
+	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	if format == "raw" {
 		var res []byte
@@ -375,8 +447,11 @@ func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	format := cmd.Root().String("format")
+	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	if format == "raw" {
 		var res []byte
