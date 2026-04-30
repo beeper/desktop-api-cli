@@ -104,10 +104,10 @@ var chatsRetrieve = cli.Command{
 			Usage:    "Unique identifier of the chat.",
 			Required: true,
 		},
-		&requestflag.Flag[any]{
+		&requestflag.Flag[*int64]{
 			Name:      "max-participant-count",
 			Usage:     "Maximum number of participants to return. Use -1 for all; otherwise 0–500. Defaults to all (-1).",
-			Default:   -1,
+			Default:   requestflag.Ptr[int64](-1),
 			QueryPath: "maxParticipantCount",
 		},
 	},
@@ -190,10 +190,10 @@ var chatsSearch = cli.Command{
 			Usage:     `Filter by inbox type: "primary" (non-archived, non-low-priority), "low-priority", or "archive". If not specified, shows all chats.`,
 			QueryPath: "inbox",
 		},
-		&requestflag.Flag[any]{
+		&requestflag.Flag[*bool]{
 			Name:      "include-muted",
 			Usage:     "Include chats marked as Muted by the user, which are usually less important. Default: true. Set to false if the user wants a more refined search.",
-			Default:   true,
+			Default:   requestflag.Ptr[bool](true),
 			QueryPath: "includeMuted",
 		},
 		&requestflag.Flag[any]{
@@ -229,7 +229,7 @@ var chatsSearch = cli.Command{
 			Default:   "any",
 			QueryPath: "type",
 		},
-		&requestflag.Flag[any]{
+		&requestflag.Flag[*bool]{
 			Name:      "unread-only",
 			Usage:     "Set to true to only retrieve chats that have unread messages",
 			QueryPath: "unreadOnly",
