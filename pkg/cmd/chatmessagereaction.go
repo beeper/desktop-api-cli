@@ -20,13 +20,15 @@ var chatsMessagesReactionsDelete = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "reaction-key",
@@ -45,13 +47,15 @@ var chatsMessagesReactionsAdd = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:     "reaction-key",
@@ -80,10 +84,6 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatMessageReactionDeleteParams{
-		ChatID: cmd.Value("chat-id").(string),
-	}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -93,6 +93,10 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 	)
 	if err != nil {
 		return err
+	}
+
+	params := beeperdesktopapi.ChatMessageReactionDeleteParams{
+		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	var res []byte
@@ -131,10 +135,6 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatMessageReactionAddParams{
-		ChatID: cmd.Value("chat-id").(string),
-	}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -144,6 +144,10 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 	)
 	if err != nil {
 		return err
+	}
+
+	params := beeperdesktopapi.ChatMessageReactionAddParams{
+		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	var res []byte

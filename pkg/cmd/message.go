@@ -20,13 +20,15 @@ var messagesUpdate = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:     "text",
@@ -45,9 +47,10 @@ var messagesList = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "cursor",
@@ -156,9 +159,10 @@ var messagesSend = requestflag.WithInnerFlags(cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[map[string]any]{
 			Name:     "attachment",
@@ -224,10 +228,6 @@ func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageUpdateParams{
-		ChatID: cmd.Value("chat-id").(string),
-	}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -237,6 +237,10 @@ func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	params := beeperdesktopapi.MessageUpdateParams{
+		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	var res []byte
@@ -275,8 +279,6 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageListParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -287,6 +289,8 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.MessageListParams{}
 
 	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
@@ -343,8 +347,6 @@ func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageSearchParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -355,6 +357,8 @@ func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.MessageSearchParams{}
 
 	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
@@ -404,8 +408,6 @@ func handleMessagesSend(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageSendParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -416,6 +418,8 @@ func handleMessagesSend(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.MessageSendParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))

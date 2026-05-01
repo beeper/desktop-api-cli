@@ -20,9 +20,10 @@ var accountsContactsList = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "account-id",
-			Usage:    "Account ID this resource belongs to.",
-			Required: true,
+			Name:      "account-id",
+			Usage:     "Account ID this resource belongs to.",
+			Required:  true,
+			PathParam: "accountID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "cursor",
@@ -60,9 +61,10 @@ var accountsContactsSearch = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "account-id",
-			Usage:    "Account ID this resource belongs to.",
-			Required: true,
+			Name:      "account-id",
+			Usage:     "Account ID this resource belongs to.",
+			Required:  true,
+			PathParam: "accountID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "query",
@@ -86,8 +88,6 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AccountContactListParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -98,6 +98,8 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AccountContactListParams{}
 
 	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
@@ -157,8 +159,6 @@ func handleAccountsContactsSearch(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AccountContactSearchParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -169,6 +169,8 @@ func handleAccountsContactsSearch(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AccountContactSearchParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))

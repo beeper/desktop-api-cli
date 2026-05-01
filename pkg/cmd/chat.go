@@ -100,9 +100,10 @@ var chatsRetrieve = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[*int64]{
 			Name:      "max-participant-count",
@@ -150,9 +151,10 @@ var chatsArchive = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[bool]{
 			Name:     "archived",
@@ -251,8 +253,6 @@ func handleChatsCreate(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatNewParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -263,6 +263,8 @@ func handleChatsCreate(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatNewParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -295,8 +297,6 @@ func handleChatsRetrieve(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatGetParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -307,6 +307,8 @@ func handleChatsRetrieve(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatGetParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -344,8 +346,6 @@ func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatListParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -356,6 +356,8 @@ func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatListParams{}
 
 	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
@@ -405,8 +407,6 @@ func handleChatsArchive(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatArchiveParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -417,6 +417,8 @@ func handleChatsArchive(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatArchiveParams{}
 
 	return client.Chats.Archive(
 		ctx,
@@ -434,8 +436,6 @@ func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatSearchParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -446,6 +446,8 @@ func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatSearchParams{}
 
 	format := "json"
 	explicitFormat := cmd.Root().IsSet("format")
