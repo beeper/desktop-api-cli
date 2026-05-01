@@ -113,8 +113,6 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AssetDownloadParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -125,6 +123,8 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AssetDownloadParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -154,8 +154,6 @@ func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AssetServeParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -166,6 +164,8 @@ func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AssetServeParams{}
 
 	response, err := client.Assets.Serve(ctx, params, options...)
 	if err != nil {
@@ -186,8 +186,6 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AssetUploadParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -198,6 +196,8 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AssetUploadParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -227,8 +227,6 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AssetUploadBase64Params{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -239,6 +237,8 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AssetUploadBase64Params{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))

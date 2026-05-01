@@ -18,9 +18,10 @@ var chatsRemindersCreate = requestflag.WithInnerFlags(cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[map[string]any]{
 			Name:     "reminder",
@@ -52,9 +53,10 @@ var chatsRemindersDelete = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Unique identifier of the chat.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 	},
 	Action:          handleChatsRemindersDelete,
@@ -72,8 +74,6 @@ func handleChatsRemindersCreate(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatReminderNewParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -84,6 +84,8 @@ func handleChatsRemindersCreate(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.ChatReminderNewParams{}
 
 	return client.Chats.Reminders.New(
 		ctx,
