@@ -3,7 +3,6 @@
 package cmd
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/beeper/desktop-api-cli/internal/mocktest"
@@ -48,21 +47,18 @@ func TestAssetsUpload(t *testing.T) {
 			t,
 			"--access-token", "string",
 			"assets", "upload",
-			"--file", mocktest.TestFile(t, "Example data"),
-			"--file-name", "fileName",
-			"--mime-type", "mimeType",
+			"--content", "x",
+			"--file-name", "x",
+			"--mime-type", "x",
 		)
 	})
 
 	t.Run("piping data", func(t *testing.T) {
-		testFile := mocktest.TestFile(t, "Example data")
 		// Test piping YAML data over stdin
-		pipeDataStr := "" +
-			"file: Example data\n" +
-			"fileName: fileName\n" +
-			"mimeType: mimeType\n"
-		pipeDataStr = strings.ReplaceAll(pipeDataStr, "Example data", testFile)
-		pipeData := []byte(pipeDataStr)
+		pipeData := []byte("" +
+			"content: x\n" +
+			"fileName: x\n" +
+			"mimeType: x\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
 			t, pipeData,
 			"--access-token", "string",
