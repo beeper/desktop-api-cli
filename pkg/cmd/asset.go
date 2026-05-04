@@ -58,20 +58,21 @@ var assetsUpload = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:      "file",
-			Usage:     "The file to upload (max 500 MB).",
-			Required:  true,
-			BodyPath:  "file",
-			FileInput: true,
+			Name:     "content",
+			Usage:    "Base64-encoded file content (max ~500MB decoded)",
+			Required: true,
+			BodyPath: "content",
 		},
 		&requestflag.Flag[string]{
 			Name:     "file-name",
-			Usage:    "Original filename. Defaults to the uploaded file name if omitted",
+			Usage:    "Original filename. Required for the JSON form of /v1/assets/upload.",
+			Required: true,
 			BodyPath: "fileName",
 		},
 		&requestflag.Flag[string]{
 			Name:     "mime-type",
-			Usage:    "MIME type. Auto-detected from magic bytes if omitted",
+			Usage:    "MIME type. Required for the JSON form of /v1/assets/upload.",
+			Required: true,
 			BodyPath: "mimeType",
 		},
 	},
@@ -190,7 +191,7 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
 		apiquery.ArrayQueryFormatRepeat,
-		MultipartFormEncoded,
+		ApplicationJSON,
 		false,
 	)
 	if err != nil {
