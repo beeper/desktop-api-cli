@@ -114,6 +114,7 @@ func init() {
 					&chatsList,
 					&chatsArchive,
 					&chatsSearch,
+					&chatsStart,
 				},
 			},
 			{

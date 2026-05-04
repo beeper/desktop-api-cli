@@ -14,9 +14,9 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-var chatsCreate = requestflag.WithInnerFlags(cli.Command{
+var chatsCreate = cli.Command{
 	Name:    "create",
-	Usage:   "Create a direct or group chat with mode=\"create\", or use mode=\"start\" to resolve\na contact and open a direct chat.",
+	Usage:   "Create a direct or group chat from participant IDs.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -25,11 +25,17 @@ var chatsCreate = requestflag.WithInnerFlags(cli.Command{
 			Required: true,
 			BodyPath: "accountID",
 		},
-		&requestflag.Flag[bool]{
-			Name:     "allow-invite",
-			Usage:    "Only used for mode='start'. Whether invite-based DM creation is allowed when required by the platform.",
-			Default:  true,
-			BodyPath: "allowInvite",
+		&requestflag.Flag[[]string]{
+			Name:     "participant-id",
+			Usage:    "User IDs to include in the new chat.",
+			Required: true,
+			BodyPath: "participantIDs",
+		},
+		&requestflag.Flag[string]{
+			Name:     "type",
+			Usage:    "'single' requires exactly one participantID; 'group' supports multiple participants and optional title.",
+			Required: true,
+			BodyPath: "type",
 		},
 		&requestflag.Flag[string]{
 			Name:     "message-text",
@@ -37,62 +43,14 @@ var chatsCreate = requestflag.WithInnerFlags(cli.Command{
 			BodyPath: "messageText",
 		},
 		&requestflag.Flag[string]{
-			Name:     "mode",
-			Usage:    "Operation mode. Use 'start' to resolve a user/contact and start a direct chat. Omit or set 'create' to create a chat directly.",
-			BodyPath: "mode",
-		},
-		&requestflag.Flag[[]string]{
-			Name:     "participant-id",
-			Usage:    "Required for create mode. Provide exactly one user ID for 'single' chats and one or more for 'group' chats.",
-			BodyPath: "participantIDs",
-		},
-		&requestflag.Flag[string]{
 			Name:     "title",
 			Usage:    "Optional title for group chats; ignored for single chats on most networks.",
 			BodyPath: "title",
 		},
-		&requestflag.Flag[string]{
-			Name:     "type",
-			Usage:    "Required for create mode. 'single' creates a direct message chat; 'group' creates a group chat.",
-			BodyPath: "type",
-		},
-		&requestflag.Flag[map[string]any]{
-			Name:     "user",
-			Usage:    "Required for mode='start'. Merged user-like contact payload used to resolve the best identifier.",
-			BodyPath: "user",
-		},
 	},
 	Action:          handleChatsCreate,
 	HideHelpCommand: true,
-}, map[string][]requestflag.HasOuterFlag{
-	"user": {
-		&requestflag.InnerFlag[string]{
-			Name:       "user.id",
-			Usage:      "Known user ID when available.",
-			InnerField: "id",
-		},
-		&requestflag.InnerFlag[string]{
-			Name:       "user.email",
-			Usage:      "Email candidate.",
-			InnerField: "email",
-		},
-		&requestflag.InnerFlag[string]{
-			Name:       "user.full-name",
-			Usage:      "Display name hint used for ranking only.",
-			InnerField: "fullName",
-		},
-		&requestflag.InnerFlag[string]{
-			Name:       "user.phone-number",
-			Usage:      "Phone number candidate (E.164 preferred).",
-			InnerField: "phoneNumber",
-		},
-		&requestflag.InnerFlag[string]{
-			Name:       "user.username",
-			Usage:      "Username/handle candidate.",
-			InnerField: "username",
-		},
-	},
-})
+}
 
 var chatsRetrieve = cli.Command{
 	Name:    "retrieve",
@@ -244,6 +202,67 @@ var chatsSearch = cli.Command{
 	Action:          handleChatsSearch,
 	HideHelpCommand: true,
 }
+
+var chatsStart = requestflag.WithInnerFlags(cli.Command{
+	Name:    "start",
+	Usage:   "Resolve a user/contact and open a direct chat. Reuses an existing direct chat\nwhen one is found. Available in Beeper Desktop v4.2.799+.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:     "account-id",
+			Usage:    "Account to create or start the chat on.",
+			Required: true,
+			BodyPath: "accountID",
+		},
+		&requestflag.Flag[map[string]any]{
+			Name:     "user",
+			Usage:    "Merged user-like contact payload used to resolve the best identifier.",
+			Required: true,
+			BodyPath: "user",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "allow-invite",
+			Usage:    "Whether invite-based DM creation is allowed when required by the platform.",
+			Default:  true,
+			BodyPath: "allowInvite",
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-text",
+			Usage:    "Optional first message content if the platform requires it to create the chat.",
+			BodyPath: "messageText",
+		},
+	},
+	Action:          handleChatsStart,
+	HideHelpCommand: true,
+}, map[string][]requestflag.HasOuterFlag{
+	"user": {
+		&requestflag.InnerFlag[string]{
+			Name:       "user.id",
+			Usage:      "Known user ID when available.",
+			InnerField: "id",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.email",
+			Usage:      "Email candidate.",
+			InnerField: "email",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.full-name",
+			Usage:      "Display name hint used for ranking only.",
+			InnerField: "fullName",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.phone-number",
+			Usage:      "Phone number candidate (E.164 preferred).",
+			InnerField: "phoneNumber",
+		},
+		&requestflag.InnerFlag[string]{
+			Name:       "user.username",
+			Usage:      "Username/handle candidate.",
+			InnerField: "username",
+		},
+	},
+})
 
 func handleChatsCreate(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
@@ -484,4 +503,45 @@ func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {
 			Transform:      transform,
 		})
 	}
+}
+
+func handleChatsStart(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.ChatStartParams{}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.Start(ctx, params, options...)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats start",
+		Transform:      transform,
+	})
 }
