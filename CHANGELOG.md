@@ -1,5 +1,58 @@
 # Changelog
 
+## 5.0.0 (2026-05-06)
+
+Full Changelog: [v0.3.0...v5.0.0](https://github.com/beeper/desktop-api-cli/compare/v0.3.0...v5.0.0)
+
+### Features
+
+* allow `-` as value representing stdin to binary-only file parameters in CLIs ([eacfea0](https://github.com/beeper/desktop-api-cli/commit/eacfea0f881332d854999d73092a4786d0b3ae33))
+* **api:** add network, bridge fields to accounts ([ccd116d](https://github.com/beeper/desktop-api-cli/commit/ccd116df91e25275b2f63f53bedf9939aae8a64a))
+* **api:** api update ([3c79717](https://github.com/beeper/desktop-api-cli/commit/3c797176b7ced4499d6bf3ff71f7d3a94967e026))
+* **api:** api update ([3920764](https://github.com/beeper/desktop-api-cli/commit/3920764851961421776d64cf694dee1f999afa3e))
+* **api:** api update ([bf4b43c](https://github.com/beeper/desktop-api-cli/commit/bf4b43c832c3b56adda72018ffd91a7dc0660966))
+* better error message if scheme forgotten in CLI `*_BASE_URL`/`--base-url` ([8d976d4](https://github.com/beeper/desktop-api-cli/commit/8d976d441c86ddfaa67c8fad50a156f9374e0d16))
+* binary-only parameters become CLI flags that take filenames only ([ed64986](https://github.com/beeper/desktop-api-cli/commit/ed64986c234a83e6c875a1202a7c217df9efa206))
+* **cli:** add `--raw-output`/`-r` option to print raw (non-JSON) strings ([963cb22](https://github.com/beeper/desktop-api-cli/commit/963cb2275ff0b6900c09dbbd0cc45c37e745d561))
+* **cli:** alias parameters in data with `x-stainless-cli-data-alias` ([301f6f2](https://github.com/beeper/desktop-api-cli/commit/301f6f2894cae408e91bb5834d50d6c16b78c28f))
+* **cli:** send filename and content type when reading input from files ([b1ab49b](https://github.com/beeper/desktop-api-cli/commit/b1ab49bb30c6d4132fb9827cff19f73d83e7af5c))
+* set CLI flag constant values automatically where `x-stainless-const` is set ([c332ed8](https://github.com/beeper/desktop-api-cli/commit/c332ed822bc6e94cb521620032bdcf941d4b7593))
+* support passing path and query params over stdin ([5fe5a8d](https://github.com/beeper/desktop-api-cli/commit/5fe5a8d8aa02222e08a8407728d8063d08d9fdb9))
+
+
+### Bug Fixes
+
+* **cli:** correctly load zsh autocompletion ([2b1da99](https://github.com/beeper/desktop-api-cli/commit/2b1da99d8aa0d518a3a1e90126467b4eabff4a03))
+* fall back to main branch if linking fails in CI ([6960f67](https://github.com/beeper/desktop-api-cli/commit/6960f674e30ae4b66c8c727accf4b140df4aa257))
+* fix for failing to drop invalid module replace in link script ([5480c0e](https://github.com/beeper/desktop-api-cli/commit/5480c0e637e57e45ef1780847a2ec1638ef8550d))
+* fix for off-by-one error in pagination logic ([16566c5](https://github.com/beeper/desktop-api-cli/commit/16566c5d80a77de14f33e1895ec72cfa89da99c7))
+* fix quoting typo ([81a96d9](https://github.com/beeper/desktop-api-cli/commit/81a96d9880aee422f73677cdbe67134af37f6814))
+* flags for nullable body scalar fields are strictly typed ([865b851](https://github.com/beeper/desktop-api-cli/commit/865b85180334a84053ebbc19c718f17c29c9d9d7))
+* handle empty data set using `--format explore` ([6df0024](https://github.com/beeper/desktop-api-cli/commit/6df00248f562bbbd98e7cbccf8ddd82b35a40ae3))
+* use `RawJSON` when iterating items with `--format explore` in the CLI ([4af189d](https://github.com/beeper/desktop-api-cli/commit/4af189dc0e5add5c654204e0e90c91e199de479a))
+
+
+### Chores
+
+* add documentation for ./scripts/link ([b57a694](https://github.com/beeper/desktop-api-cli/commit/b57a69441818f20bf3d1bbf949a30b65c55aa728))
+* **ci:** skip lint on metadata-only changes ([d18d972](https://github.com/beeper/desktop-api-cli/commit/d18d972e88c1a03890fcbe3ba2f0dbffb06f5e48))
+* **ci:** support manually triggering release workflow ([5a018e8](https://github.com/beeper/desktop-api-cli/commit/5a018e83f5f9347b262b10176639fcc24ec5f370))
+* **cli:** additional test cases for `ShowJSONIterator` ([79f9f75](https://github.com/beeper/desktop-api-cli/commit/79f9f751f5fd415d9a34893e47b8409aa82dcb7c))
+* **cli:** fall back to JSON when using default "explore" with non-TTY ([de64b1c](https://github.com/beeper/desktop-api-cli/commit/de64b1c7b2620be74c563e4da9ae4ff6a486555e))
+* **cli:** let `--format raw` be used in conjunction with `--transform` ([c37cb3e](https://github.com/beeper/desktop-api-cli/commit/c37cb3e7e49185c7e7e398fb70a254ea8daf2456))
+* **cli:** switch long lists of positional args over to param structs ([d4e5630](https://github.com/beeper/desktop-api-cli/commit/d4e5630718dc3170dac5f9efe0acfd0be2f1a390))
+* **cli:** use `ShowJSONOpts` as argument to `formatJSON` instead of many positionals ([384a7f4](https://github.com/beeper/desktop-api-cli/commit/384a7f434bd6d40b626b6e635f005853f66ff917))
+* **internal:** more robust bootstrap script ([888af53](https://github.com/beeper/desktop-api-cli/commit/888af53697b79c93159f9fce5e60cca4ea1e5a04))
+* **internal:** update multipart form array serialization ([180bf35](https://github.com/beeper/desktop-api-cli/commit/180bf353b36de3cfee9e9497dca4558622654e18))
+* mark all CLI-related tests in Go with `t.Parallel()` ([59678e1](https://github.com/beeper/desktop-api-cli/commit/59678e17b692460f3fdc03ca82ba6270d13ed460))
+* modify CLI tests to inject stdout so mutating `os.Stdout` isn't necessary ([9e6fe8f](https://github.com/beeper/desktop-api-cli/commit/9e6fe8f0d1cba9d5115fba0b82f24a5938b3e7bc))
+* omit full usage information when missing required CLI parameters ([8b749cf](https://github.com/beeper/desktop-api-cli/commit/8b749cf09b595e66687d4030cee0791aff7e14c4))
+* switch some CLI Go tests from `os.Chdir` to `t.Chdir` ([c0de07e](https://github.com/beeper/desktop-api-cli/commit/c0de07ef35b6d776781b0347a102c3855445f0cb))
+* **tests:** bump steady to v0.19.7 ([c7c519c](https://github.com/beeper/desktop-api-cli/commit/c7c519cf80adffc7cebbd3ec220227baf48672d7))
+* **tests:** bump steady to v0.20.1 ([533501d](https://github.com/beeper/desktop-api-cli/commit/533501d2960fc565d5891d5f610a7feef458d0b2))
+* **tests:** bump steady to v0.20.2 ([3a7b085](https://github.com/beeper/desktop-api-cli/commit/3a7b085b2130d21ee0a2b434dbaa3efada1e1bb3))
+* **tests:** bump steady to v0.22.1 ([2164645](https://github.com/beeper/desktop-api-cli/commit/216464542c88aca1c22ebf0e9af3ac0eb6854a38))
+
 ## 0.3.0 (2026-03-24)
 
 Full Changelog: [v0.2.0...v0.3.0](https://github.com/beeper/desktop-api-cli/compare/v0.2.0...v0.3.0)
