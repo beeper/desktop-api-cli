@@ -39,11 +39,14 @@ func init() {
 				Name:        "base-url",
 				DefaultText: "url",
 				Usage:       "Override the base URL for API requests",
+				Validator: func(baseURL string) error {
+					return ValidateBaseURL(baseURL, "--base-url")
+				},
 			},
 			&cli.StringFlag{
 				Name:  "format",
 				Usage: "The format for displaying response data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "pretty",
+				Value: "json",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))
@@ -54,7 +57,7 @@ func init() {
 			&cli.StringFlag{
 				Name:  "format-error",
 				Usage: "The format for displaying error data (one of: " + strings.Join(OutputFormats, ", ") + ")",
-				Value: "pretty",
+				Value: "json",
 				Validator: func(format string) error {
 					if !slices.Contains(OutputFormats, strings.ToLower(format)) {
 						return fmt.Errorf("format must be one of: %s", strings.Join(OutputFormats, ", "))
@@ -69,6 +72,11 @@ func init() {
 			&cli.StringFlag{
 				Name:  "transform-error",
 				Usage: "The GJSON transformation for errors.",
+			},
+			&cli.BoolFlag{
+				Name:    "raw-output",
+				Aliases: []string{"r"},
+				Usage:   "If the result is a string, print it without JSON quotes. This can be useful for making output transforms talk to non-JSON-based systems.",
 			},
 			&requestflag.Flag[string]{
 				Name:    "access-token",
@@ -103,9 +111,14 @@ func init() {
 				Commands: []*cli.Command{
 					&chatsCreate,
 					&chatsRetrieve,
+					&chatsUpdate,
 					&chatsList,
 					&chatsArchive,
+					&chatsMarkRead,
+					&chatsMarkUnread,
+					&chatsNotifyAnyway,
 					&chatsSearch,
+					&chatsStart,
 				},
 			},
 			{
@@ -131,8 +144,10 @@ func init() {
 				Category: "API RESOURCE",
 				Suggest:  true,
 				Commands: []*cli.Command{
+					&messagesRetrieve,
 					&messagesUpdate,
 					&messagesList,
+					&messagesDelete,
 					&messagesSearch,
 					&messagesSend,
 				},

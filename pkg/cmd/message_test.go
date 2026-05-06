@@ -9,6 +9,18 @@ import (
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
 )
 
+func TestMessagesRetrieve(t *testing.T) {
+	t.Run("regular flags", func(t *testing.T) {
+		mocktest.TestRunMockTestWithFlags(
+			t,
+			"--access-token", "string",
+			"messages", "retrieve",
+			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+			"--message-id", "1343993",
+		)
+	})
+}
+
 func TestMessagesUpdate(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
@@ -16,7 +28,7 @@ func TestMessagesUpdate(t *testing.T) {
 			"--access-token", "string",
 			"messages", "update",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--message-id", "messageID",
+			"--message-id", "1343993",
 			"--text", "x",
 		)
 	})
@@ -29,7 +41,7 @@ func TestMessagesUpdate(t *testing.T) {
 			"--access-token", "string",
 			"messages", "update",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--message-id", "messageID",
+			"--message-id", "1343993",
 		)
 	})
 }
@@ -48,6 +60,19 @@ func TestMessagesList(t *testing.T) {
 	})
 }
 
+func TestMessagesDelete(t *testing.T) {
+	t.Run("regular flags", func(t *testing.T) {
+		mocktest.TestRunMockTestWithFlags(
+			t,
+			"--access-token", "string",
+			"messages", "delete",
+			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
+			"--message-id", "1343993",
+			"--for-everyone=true",
+		)
+	})
+}
+
 func TestMessagesSearch(t *testing.T) {
 	t.Run("regular flags", func(t *testing.T) {
 		mocktest.TestRunMockTestWithFlags(
@@ -55,8 +80,9 @@ func TestMessagesSearch(t *testing.T) {
 			"--access-token", "string",
 			"messages", "search",
 			"--max-items", "10",
+			"--account-id", "matrix",
+			"--account-id", "discordgo",
 			"--account-id", "local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc",
-			"--account-id", "local-instagram_ba_eRfQMmnSNy_p7Ih7HL7RduRpKFU",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
 			"--chat-id", "1231073",
 			"--chat-type", "group",
@@ -81,7 +107,7 @@ func TestMessagesSend(t *testing.T) {
 			"--access-token", "string",
 			"messages", "send",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--attachment", "{uploadID: uploadID, duration: 0, fileName: fileName, mimeType: mimeType, size: {height: 0, width: 0}, type: gif}",
+			"--attachment", "{uploadID: uploadID, duration: 0, fileName: fileName, mimeType: mimeType, size: {height: 0, width: 0}, type: image}",
 			"--reply-to-message-id", "replyToMessageID",
 			"--text", "text",
 		)
@@ -102,7 +128,7 @@ func TestMessagesSend(t *testing.T) {
 			"--attachment.file-name", "fileName",
 			"--attachment.mime-type", "mimeType",
 			"--attachment.size", "{height: 0, width: 0}",
-			"--attachment.type", "gif",
+			"--attachment.type", "image",
 			"--reply-to-message-id", "replyToMessageID",
 			"--text", "text",
 		)
@@ -119,7 +145,7 @@ func TestMessagesSend(t *testing.T) {
 			"  size:\n" +
 			"    height: 0\n" +
 			"    width: 0\n" +
-			"  type: gif\n" +
+			"  type: image\n" +
 			"replyToMessageID: replyToMessageID\n" +
 			"text: text\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(

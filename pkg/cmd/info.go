@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-go"
@@ -16,7 +15,7 @@ import (
 
 var infoRetrieve = cli.Command{
 	Name:            "retrieve",
-	Usage:           "Returns app, platform, server, and endpoint discovery metadata for this Beeper\nDesktop instance.",
+	Usage:           "Returns app, platform, server, endpoint discovery, OAuth, and WebSocket metadata\nfor this Beeper Desktop instance.",
 	Suggest:         true,
 	Flags:           []cli.Flag{},
 	Action:          handleInfoRetrieve,
@@ -50,7 +49,17 @@ func handleInfoRetrieve(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	obj := gjson.ParseBytes(res)
-	format := cmd.Root().String("format")
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "info retrieve", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "info retrieve",
+		Transform:      transform,
+	})
 }

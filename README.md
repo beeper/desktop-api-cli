@@ -2,8 +2,6 @@
 
 The official CLI for the [Beeper Desktop REST API](https://developers.beeper.com/desktop-api/).
 
-It is generated with [Stainless](https://www.stainless.com/).
-
 <!-- x-release-please-start-version -->
 
 ## Installation
@@ -55,6 +53,10 @@ beeper-desktop-cli [resource] <command> [flags...]
 
 ```sh
 beeper-desktop-cli chats search \
+  --access-token 'My Access Token' \
+  --account-id matrix \
+  --account-id discordgo \
+  --account-id local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc \
   --include-muted \
   --limit 3 \
   --type single
@@ -119,3 +121,23 @@ base64-encoding). Note that absolute paths will begin with `@file://` or
 ```bash
 beeper-desktop-cli <command> --arg @data://file.txt
 ```
+
+## Linking different Go SDK versions
+
+You can link the CLI against a different version of the Beeper Desktop Go SDK
+for development purposes using the `./scripts/link` script.
+
+To link to a specific version from a repository (version can be a branch,
+git tag, or commit hash):
+
+```bash
+./scripts/link github.com/org/repo@version
+```
+
+To link to a local copy of the SDK:
+
+```bash
+./scripts/link ../path/to/beeperdesktopapi-go
+```
+
+If you run the link script without any arguments, it will default to `../beeperdesktopapi-go`.

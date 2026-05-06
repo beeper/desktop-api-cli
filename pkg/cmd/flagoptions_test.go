@@ -2,15 +2,18 @@ package cmd
 
 import (
 	"encoding/base64"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIsUTF8TextFile(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		content  []byte
 		expected bool
@@ -27,11 +30,13 @@ func TestIsUTF8TextFile(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.expected, isUTF8TextFile(tt.content))
+		require.Equal(t, tt.expected, isUTF8TextFile(tt.content))
 	}
 }
 
 func TestEmbedFiles(t *testing.T) {
+	t.Parallel()
+
 	// Create temporary directory for test files
 	tmpDir := t.TempDir()
 
@@ -216,19 +221,23 @@ func TestEmbedFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name+" text", func(t *testing.T) {
-			got, err := embedFiles(tt.input, EmbedText)
+			t.Parallel()
+
+			got, err := embedFiles(tt.input, EmbedText, nil)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
+				require.Equal(t, tt.want, got)
 			}
 		})
 
 		t.Run(tt.name+" io.Reader", func(t *testing.T) {
-			_, err := embedFiles(tt.input, EmbedIOReader)
+			t.Parallel()
+
+			_, err := embedFiles(tt.input, EmbedIOReader, nil)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
@@ -236,9 +245,148 @@ func TestEmbedFiles(t *testing.T) {
 	}
 }
 
+func TestEmbedFilesStdin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("FilePathValueDash", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("stdin content")}
+
+		withEmbedded, err := embedFiles(map[string]any{"file": FilePathValue("-")}, EmbedText, stdin)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"file": "stdin content"}, withEmbedded)
+	})
+
+	t.Run("FilePathValueDevStdin", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("stdin content")}
+
+		withEmbedded, err := embedFiles(map[string]any{"file": FilePathValue("/dev/stdin")}, EmbedText, stdin)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"file": "stdin content"}, withEmbedded)
+	})
+
+	t.Run("MultipleFilePathValueDashesError", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("stdin content")}
+
+		_, err := embedFiles(map[string]any{
+			"file1": FilePathValue("-"),
+			"file2": FilePathValue("-"),
+		}, EmbedText, stdin)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already been read")
+	})
+
+	t.Run("FilePathValueDashUnavailableStdin", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{failureReason: "stdin is already being used for the request body"}
+
+		_, err := embedFiles(map[string]any{"file": FilePathValue("-")}, EmbedText, stdin)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot read from stdin")
+		require.Contains(t, err.Error(), "request body")
+	})
+
+	t.Run("AtDashEmbedText", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("piped content")}
+
+		withEmbedded, err := embedFiles(map[string]any{"data": "@-"}, EmbedText, stdin)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"data": "piped content"}, withEmbedded)
+	})
+
+	t.Run("AtDashEmbedIOReader", func(t *testing.T) {
+		t.Parallel()
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("piped content")}
+
+		withEmbedded, err := embedFiles(map[string]any{"data": "@-"}, EmbedIOReader, stdin)
+		require.NoError(t, err)
+
+		withEmbeddedMap := withEmbedded.(map[string]any)
+		r := withEmbeddedMap["data"].(io.ReadCloser)
+
+		content, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.Equal(t, "piped content", string(content))
+	})
+
+	t.Run("FilePathValueRealFile", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		writeTestFile(t, tmpDir, "test.txt", "file content")
+
+		stdin := &onceStdinReader{stdinReader: strings.NewReader("unused stdin")}
+
+		withEmbedded, err := embedFiles(map[string]any{"file": FilePathValue(filepath.Join(tmpDir, "test.txt"))}, EmbedText, stdin)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"file": "file content"}, withEmbedded)
+	})
+}
+
+// TestEmbedFilesUploadMetadata verifies that EmbedIOReader mode wraps file readers with filename and
+// content-type metadata so the multipart encoder populates `Content-Disposition` and `Content-Type` headers.
+func TestEmbedFilesUploadMetadata(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	writeTestFile(t, tmpDir, "hello.txt", "hi")
+	writeTestFile(t, tmpDir, "page.html", "<html/>")
+	writeTestFile(t, tmpDir, "blob.bin", "\x00\x01")
+
+	cases := []struct {
+		basename        string
+		wantContentType string
+	}{
+		{"hello.txt", "text/plain; charset=utf-8"},
+		{"page.html", "text/html; charset=utf-8"},
+		{"blob.bin", "application/octet-stream"},
+	}
+
+	for _, tc := range cases {
+		t.Run("AtPrefix_"+tc.basename, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(tmpDir, tc.basename)
+			withEmbedded, err := embedFiles(map[string]any{"file": "@" + path}, EmbedIOReader, nil)
+			require.NoError(t, err)
+
+			upload, ok := withEmbedded.(map[string]any)["file"].(fileUpload)
+			require.True(t, ok, "expected fileUpload, got %T", withEmbedded.(map[string]any)["file"])
+			require.Equal(t, tc.basename, upload.Filename())
+			require.Equal(t, upload.ContentType(), tc.wantContentType)
+			require.NoError(t, upload.Close())
+		})
+
+		t.Run("FilePathValue_"+tc.basename, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(tmpDir, tc.basename)
+			withEmbedded, err := embedFiles(map[string]any{"file": FilePathValue(path)}, EmbedIOReader, nil)
+			require.NoError(t, err)
+
+			upload, ok := withEmbedded.(map[string]any)["file"].(fileUpload)
+			require.True(t, ok, "expected fileUpload, got %T", withEmbedded.(map[string]any)["file"])
+			require.Equal(t, tc.basename, upload.Filename())
+			require.Equal(t, upload.ContentType(), tc.wantContentType)
+			require.NoError(t, upload.Close())
+		})
+	}
+}
+
 func writeTestFile(t *testing.T, dir, filename, content string) {
 	t.Helper()
+
 	path := filepath.Join(dir, filename)
+
 	err := os.WriteFile(path, []byte(content), 0644)
 	require.NoError(t, err, "failed to write test file %s", path)
 }

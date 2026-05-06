@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -17,7 +16,7 @@ import (
 
 var focus = cli.Command{
 	Name:    "focus",
-	Usage:   "Focus Beeper Desktop and optionally navigate to a specific chat, message, or\npre-fill draft text and attachment.",
+	Usage:   "Focus Beeper Desktop and optionally navigate to a specific chat, message, or\npre-fill plain text and an image path.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -27,12 +26,12 @@ var focus = cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:     "draft-attachment-path",
-			Usage:    "Optional draft attachment path to populate in the message input field.",
+			Usage:    "Optional image path to populate in the message input field.",
 			BodyPath: "draftAttachmentPath",
 		},
 		&requestflag.Flag[string]{
 			Name:     "draft-text",
-			Usage:    "Optional draft text to populate in the message input field.",
+			Usage:    "Optional plain text to populate in the message input field.",
 			BodyPath: "draftText",
 		},
 		&requestflag.Flag[string]{
@@ -69,8 +68,6 @@ func handleFocus(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.FocusParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -82,6 +79,8 @@ func handleFocus(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	params := beeperdesktopapi.FocusParams{}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Focus(ctx, params, options...)
@@ -91,8 +90,15 @@ func handleFocus(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "focus", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "focus",
+		Transform:      transform,
+	})
 }
 
 func handleSearch(ctx context.Context, cmd *cli.Command) error {
@@ -102,8 +108,6 @@ func handleSearch(ctx context.Context, cmd *cli.Command) error {
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
-
-	params := beeperdesktopapi.SearchParams{}
 
 	options, err := flagOptions(
 		cmd,
@@ -116,6 +120,8 @@ func handleSearch(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	params := beeperdesktopapi.SearchParams{}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Search(ctx, params, options...)
@@ -124,7 +130,17 @@ func handleSearch(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	obj := gjson.ParseBytes(res)
-	format := cmd.Root().String("format")
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "search", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "search",
+		Transform:      transform,
+	})
 }

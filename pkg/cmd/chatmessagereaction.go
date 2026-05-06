@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -17,23 +16,26 @@ import (
 
 var chatsMessagesReactionsDelete = cli.Command{
 	Name:    "delete",
-	Usage:   "Remove the authenticated user's reaction from an existing message.",
+	Usage:   "Remove the reaction added by the authenticated user from an existing message.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Usage:     "Message ID.",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "reaction-key",
-			Usage:     "Reaction key to remove",
+			Usage:     "Reaction key to remove (emoji, shortcode, or custom emoji key)",
 			Required:  true,
-			QueryPath: "reactionKey",
+			PathParam: "reactionKey",
 		},
 	},
 	Action:          handleChatsMessagesReactionsDelete,
@@ -46,13 +48,16 @@ var chatsMessagesReactionsAdd = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Usage:     "Message ID.",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:     "reaction-key",
@@ -62,7 +67,7 @@ var chatsMessagesReactionsAdd = cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:     "transaction-id",
-			Usage:    "Optional transaction ID for deduplication and local echo tracking",
+			Usage:    "Optional transaction ID for deduplication and send tracking",
 			BodyPath: "transactionID",
 		},
 	},
@@ -73,16 +78,12 @@ var chatsMessagesReactionsAdd = cli.Command{
 func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
 	unusedArgs := cmd.Args().Slice()
-	if !cmd.IsSet("message-id") && len(unusedArgs) > 0 {
-		cmd.Set("message-id", unusedArgs[0])
+	if !cmd.IsSet("reaction-key") && len(unusedArgs) > 0 {
+		cmd.Set("reaction-key", unusedArgs[0])
 		unusedArgs = unusedArgs[1:]
 	}
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
-	}
-
-	params := beeperdesktopapi.ChatMessageReactionDeleteParams{
-		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	options, err := flagOptions(
@@ -96,11 +97,16 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 		return err
 	}
 
+	params := beeperdesktopapi.ChatMessageReactionDeleteParams{
+		ChatID:    cmd.Value("chat-id").(string),
+		MessageID: cmd.Value("message-id").(string),
+	}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Chats.Messages.Reactions.Delete(
 		ctx,
-		cmd.Value("message-id").(string),
+		cmd.Value("reaction-key").(string),
 		params,
 		options...,
 	)
@@ -110,8 +116,15 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "chats:messages:reactions delete", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats:messages:reactions delete",
+		Transform:      transform,
+	})
 }
 
 func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) error {
@@ -125,10 +138,6 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.ChatMessageReactionAddParams{
-		ChatID: cmd.Value("chat-id").(string),
-	}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -138,6 +147,10 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 	)
 	if err != nil {
 		return err
+	}
+
+	params := beeperdesktopapi.ChatMessageReactionAddParams{
+		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	var res []byte
@@ -154,6 +167,13 @@ func handleChatsMessagesReactionsAdd(ctx context.Context, cmd *cli.Command) erro
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "chats:messages:reactions add", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats:messages:reactions add",
+		Transform:      transform,
+	})
 }

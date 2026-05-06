@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-go"
@@ -16,7 +15,7 @@ import (
 
 var accountsList = cli.Command{
 	Name:            "list",
-	Usage:           "Lists chat accounts across networks (WhatsApp, Telegram, Twitter/X, etc.)\nactively connected to this Beeper Desktop instance",
+	Usage:           "List Chat Accounts connected to this Beeper Desktop instance, including bridge\nmetadata and network identity.",
 	Suggest:         true,
 	Flags:           []cli.Flag{},
 	Action:          handleAccountsList,
@@ -50,7 +49,17 @@ func handleAccountsList(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	obj := gjson.ParseBytes(res)
-	format := cmd.Root().String("format")
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "accounts list", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "accounts list",
+		Transform:      transform,
+	})
 }

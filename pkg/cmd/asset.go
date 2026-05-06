@@ -17,12 +17,12 @@ import (
 
 var assetsDownload = cli.Command{
 	Name:    "download",
-	Usage:   "Download a Matrix asset using its mxc:// or localmxc:// URL to the device\nrunning Beeper Desktop and return the local file URL.",
+	Usage:   "Download a Matrix file using its mxc:// or localmxc:// URL to the device running\nBeeper Desktop and return the local file URL.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:     "url",
-			Usage:    "Matrix content URL (mxc:// or localmxc://) for the asset to download.",
+			Usage:    "Matrix content URL (mxc:// or localmxc://) for the file to download.",
 			Required: true,
 			BodyPath: "url",
 		},
@@ -38,9 +38,14 @@ var assetsServe = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "url",
-			Usage:     "Asset URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
+			Usage:     "File URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
 			Required:  true,
 			QueryPath: "url",
+		},
+		&requestflag.Flag[string]{
+			Name:    "output",
+			Aliases: []string{"o"},
+			Usage:   "The file where the response contents will be stored. Use the value '-' to force output to stdout.",
 		},
 	},
 	Action:          handleAssetsServe,
@@ -49,14 +54,15 @@ var assetsServe = cli.Command{
 
 var assetsUpload = cli.Command{
 	Name:    "upload",
-	Usage:   "Upload a file to a temporary location using multipart/form-data. Returns an\nuploadID that can be referenced when sending messages with attachments.",
+	Usage:   "Upload a file to a temporary location using multipart/form-data. Returns an\nuploadID that can be referenced when sending a message or materializing a draft\nattachment.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "file",
-			Usage:    "The file to upload (max 500 MB).",
-			Required: true,
-			BodyPath: "file",
+			Name:      "file",
+			Usage:     "The file to upload (max 500 MB).",
+			Required:  true,
+			BodyPath:  "file",
+			FileInput: true,
 		},
 		&requestflag.Flag[string]{
 			Name:     "file-name",
@@ -75,7 +81,7 @@ var assetsUpload = cli.Command{
 
 var assetsUploadBase64 = cli.Command{
 	Name:    "upload-base64",
-	Usage:   "Upload a file using a JSON body with base64-encoded content. Returns an uploadID\nthat can be referenced when sending messages with attachments. Alternative to\nthe multipart upload endpoint.",
+	Usage:   "Upload a file using a JSON body with base64-encoded content. Returns an uploadID\nthat can be referenced when sending a message or materializing a draft\nattachment. Alternative to the multipart upload endpoint.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -107,8 +113,6 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AssetDownloadParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -120,6 +124,8 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	params := beeperdesktopapi.AssetDownloadParams{}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Assets.Download(ctx, params, options...)
@@ -129,8 +135,15 @@ func handleAssetsDownload(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "assets download", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "assets download",
+		Transform:      transform,
+	})
 }
 
 func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
@@ -140,8 +153,6 @@ func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
-
-	params := beeperdesktopapi.AssetServeParams{}
 
 	options, err := flagOptions(
 		cmd,
@@ -154,7 +165,17 @@ func handleAssetsServe(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	return client.Assets.Serve(ctx, params, options...)
+	params := beeperdesktopapi.AssetServeParams{}
+
+	response, err := client.Assets.Serve(ctx, params, options...)
+	if err != nil {
+		return err
+	}
+	message, err := writeBinaryResponse(response, os.Stdout, cmd.String("output"))
+	if message != "" {
+		fmt.Println(message)
+	}
+	return err
 }
 
 func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
@@ -164,8 +185,6 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
-
-	params := beeperdesktopapi.AssetUploadParams{}
 
 	options, err := flagOptions(
 		cmd,
@@ -178,6 +197,8 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	params := beeperdesktopapi.AssetUploadParams{}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Assets.Upload(ctx, params, options...)
@@ -187,8 +208,15 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "assets upload", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "assets upload",
+		Transform:      transform,
+	})
 }
 
 func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
@@ -198,8 +226,6 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
-
-	params := beeperdesktopapi.AssetUploadBase64Params{}
 
 	options, err := flagOptions(
 		cmd,
@@ -212,6 +238,8 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	params := beeperdesktopapi.AssetUploadBase64Params{}
+
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Assets.UploadBase64(ctx, params, options...)
@@ -221,6 +249,13 @@ func handleAssetsUploadBase64(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "assets upload-base64", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "assets upload-base64",
+		Transform:      transform,
+	})
 }

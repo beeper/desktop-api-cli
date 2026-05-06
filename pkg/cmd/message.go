@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -15,19 +14,44 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+var messagesRetrieve = cli.Command{
+	Name:    "retrieve",
+	Usage:   "Retrieve a message by final message ID, pendingMessageID, or Matrix event ID.\nChat ID may be a Beeper chat ID or local chat ID.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+		&requestflag.Flag[string]{
+			Name:      "message-id",
+			Usage:     "Message ID.",
+			Required:  true,
+			PathParam: "messageID",
+		},
+	},
+	Action:          handleMessagesRetrieve,
+	HideHelpCommand: true,
+}
+
 var messagesUpdate = cli.Command{
 	Name:    "update",
 	Usage:   "Edit the text content of an existing message. Messages with attachments cannot\nbe edited.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
-			Name:     "message-id",
-			Required: true,
+			Name:      "message-id",
+			Usage:     "Message ID.",
+			Required:  true,
+			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:     "text",
@@ -46,9 +70,10 @@ var messagesList = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "cursor",
@@ -69,9 +94,37 @@ var messagesList = cli.Command{
 	HideHelpCommand: true,
 }
 
+var messagesDelete = cli.Command{
+	Name:    "delete",
+	Usage:   "Delete a message by final message ID. Pending message IDs are not accepted\nbecause messages cannot be deleted while sending.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+		&requestflag.Flag[string]{
+			Name:      "message-id",
+			Usage:     "Message ID.",
+			Required:  true,
+			PathParam: "messageID",
+		},
+		&requestflag.Flag[*bool]{
+			Name:      "for-everyone",
+			Usage:     "True to request deletion for everyone when the network supports it; false to delete only for the authenticated user when supported.",
+			Default:   requestflag.Ptr[bool](true),
+			QueryPath: "forEveryone",
+		},
+	},
+	Action:          handleMessagesDelete,
+	HideHelpCommand: true,
+}
+
 var messagesSearch = cli.Command{
 	Name:    "search",
-	Usage:   "Search messages across chats using Beeper's message index",
+	Usage:   "Search messages across chats.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[[]string]{
@@ -109,16 +162,16 @@ var messagesSearch = cli.Command{
 			Usage:     "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
 			QueryPath: "direction",
 		},
-		&requestflag.Flag[any]{
+		&requestflag.Flag[*bool]{
 			Name:      "exclude-low-priority",
 			Usage:     "Exclude messages marked Low Priority by the user. Default: true. Set to false to include all.",
-			Default:   true,
+			Default:   requestflag.Ptr[bool](true),
 			QueryPath: "excludeLowPriority",
 		},
-		&requestflag.Flag[any]{
+		&requestflag.Flag[*bool]{
 			Name:      "include-muted",
 			Usage:     "Include messages in chats marked as Muted by the user, which are usually less important. Default: true. Set to false if the user wants a more refined search.",
-			Default:   true,
+			Default:   requestflag.Ptr[bool](true),
 			QueryPath: "includeMuted",
 		},
 		&requestflag.Flag[int64]{
@@ -157,9 +210,10 @@ var messagesSend = requestflag.WithInnerFlags(cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "chat-id",
-			Usage:    "Unique identifier of the chat.",
-			Required: true,
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
 		},
 		&requestflag.Flag[map[string]any]{
 			Name:     "attachment",
@@ -173,7 +227,7 @@ var messagesSend = requestflag.WithInnerFlags(cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:     "text",
-			Usage:    "Text content of the message you want to send. You may use markdown.",
+			Usage:    "Draft text. Plain text and Markdown are converted to Matrix HTML with the same rules used by send and edit.",
 			BodyPath: "text",
 		},
 	},
@@ -208,11 +262,65 @@ var messagesSend = requestflag.WithInnerFlags(cli.Command{
 		},
 		&requestflag.InnerFlag[string]{
 			Name:       "attachment.type",
-			Usage:      "Special attachment type (gif, voiceNote, sticker). If omitted, auto-detected from mimeType",
+			Usage:      "Attachment type hint (image, video, audio, file, gif, voice-note, sticker). If omitted, auto-detected from mimeType",
 			InnerField: "type",
 		},
 	},
 })
+
+func handleMessagesRetrieve(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("message-id") && len(unusedArgs) > 0 {
+		cmd.Set("message-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		EmptyBody,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.MessageGetParams{
+		ChatID: cmd.Value("chat-id").(string),
+	}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Messages.Get(
+		ctx,
+		cmd.Value("message-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "messages retrieve",
+		Transform:      transform,
+	})
+}
 
 func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
@@ -225,10 +333,6 @@ func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageUpdateParams{
-		ChatID: cmd.Value("chat-id").(string),
-	}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -238,6 +342,10 @@ func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	params := beeperdesktopapi.MessageUpdateParams{
+		ChatID: cmd.Value("chat-id").(string),
 	}
 
 	var res []byte
@@ -254,8 +362,15 @@ func handleMessagesUpdate(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "messages update", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "messages update",
+		Transform:      transform,
+	})
 }
 
 func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
@@ -269,8 +384,6 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageListParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -282,7 +395,13 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	format := cmd.Root().String("format")
+	params := beeperdesktopapi.MessageListParams{}
+
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	if format == "raw" {
 		var res []byte
@@ -297,7 +416,13 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		obj := gjson.ParseBytes(res)
-		return ShowJSON(os.Stdout, "messages list", obj, format, transform)
+		return ShowJSON(obj, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "messages list",
+			Transform:      transform,
+		})
 	} else {
 		iter := client.Messages.ListAutoPaging(
 			ctx,
@@ -309,19 +434,26 @@ func handleMessagesList(ctx context.Context, cmd *cli.Command) error {
 		if cmd.IsSet("max-items") {
 			maxItems = cmd.Value("max-items").(int64)
 		}
-		return ShowJSONIterator(os.Stdout, "messages list", iter, format, transform, maxItems)
+		return ShowJSONIterator(iter, maxItems, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "messages list",
+			Transform:      transform,
+		})
 	}
 }
 
-func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
+func handleMessagesDelete(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
 	unusedArgs := cmd.Args().Slice()
-
+	if !cmd.IsSet("message-id") && len(unusedArgs) > 0 {
+		cmd.Set("message-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
 	if len(unusedArgs) > 0 {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
-
-	params := beeperdesktopapi.MessageSearchParams{}
 
 	options, err := flagOptions(
 		cmd,
@@ -334,7 +466,44 @@ func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	format := cmd.Root().String("format")
+	params := beeperdesktopapi.MessageDeleteParams{
+		ChatID: cmd.Value("chat-id").(string),
+	}
+
+	return client.Messages.Delete(
+		ctx,
+		cmd.Value("message-id").(string),
+		params,
+		options...,
+	)
+}
+
+func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		EmptyBody,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.MessageSearchParams{}
+
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	if format == "raw" {
 		var res []byte
@@ -344,14 +513,26 @@ func handleMessagesSearch(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		obj := gjson.ParseBytes(res)
-		return ShowJSON(os.Stdout, "messages search", obj, format, transform)
+		return ShowJSON(obj, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "messages search",
+			Transform:      transform,
+		})
 	} else {
 		iter := client.Messages.SearchAutoPaging(ctx, params, options...)
 		maxItems := int64(-1)
 		if cmd.IsSet("max-items") {
 			maxItems = cmd.Value("max-items").(int64)
 		}
-		return ShowJSONIterator(os.Stdout, "messages search", iter, format, transform, maxItems)
+		return ShowJSONIterator(iter, maxItems, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "messages search",
+			Transform:      transform,
+		})
 	}
 }
 
@@ -366,8 +547,6 @@ func handleMessagesSend(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.MessageSendParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -378,6 +557,8 @@ func handleMessagesSend(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.MessageSendParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -393,6 +574,13 @@ func handleMessagesSend(ctx context.Context, cmd *cli.Command) error {
 
 	obj := gjson.ParseBytes(res)
 	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "messages send", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "messages send",
+		Transform:      transform,
+	})
 }

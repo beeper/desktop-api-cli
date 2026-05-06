@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/beeper/desktop-api-cli/internal/apiquery"
 	"github.com/beeper/desktop-api-cli/internal/requestflag"
@@ -21,9 +20,10 @@ var accountsContactsList = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "account-id",
-			Usage:    "Account ID this resource belongs to.",
-			Required: true,
+			Name:      "account-id",
+			Usage:     "Account ID this resource belongs to.",
+			Required:  true,
+			PathParam: "accountID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "cursor",
@@ -61,9 +61,10 @@ var accountsContactsSearch = cli.Command{
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "account-id",
-			Usage:    "Account ID this resource belongs to.",
-			Required: true,
+			Name:      "account-id",
+			Usage:     "Account ID this resource belongs to.",
+			Required:  true,
+			PathParam: "accountID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "query",
@@ -87,8 +88,6 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AccountContactListParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -100,7 +99,13 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	format := cmd.Root().String("format")
+	params := beeperdesktopapi.AccountContactListParams{}
+
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
 	if format == "raw" {
 		var res []byte
@@ -115,7 +120,13 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		obj := gjson.ParseBytes(res)
-		return ShowJSON(os.Stdout, "accounts:contacts list", obj, format, transform)
+		return ShowJSON(obj, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "accounts:contacts list",
+			Transform:      transform,
+		})
 	} else {
 		iter := client.Accounts.Contacts.ListAutoPaging(
 			ctx,
@@ -127,7 +138,13 @@ func handleAccountsContactsList(ctx context.Context, cmd *cli.Command) error {
 		if cmd.IsSet("max-items") {
 			maxItems = cmd.Value("max-items").(int64)
 		}
-		return ShowJSONIterator(os.Stdout, "accounts:contacts list", iter, format, transform, maxItems)
+		return ShowJSONIterator(iter, maxItems, ShowJSONOpts{
+			ExplicitFormat: explicitFormat,
+			Format:         format,
+			RawOutput:      cmd.Root().Bool("raw-output"),
+			Title:          "accounts:contacts list",
+			Transform:      transform,
+		})
 	}
 }
 
@@ -142,8 +159,6 @@ func handleAccountsContactsSearch(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
 	}
 
-	params := beeperdesktopapi.AccountContactSearchParams{}
-
 	options, err := flagOptions(
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
@@ -154,6 +169,8 @@ func handleAccountsContactsSearch(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	params := beeperdesktopapi.AccountContactSearchParams{}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
@@ -168,7 +185,17 @@ func handleAccountsContactsSearch(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	obj := gjson.ParseBytes(res)
-	format := cmd.Root().String("format")
+	format := "json"
+	explicitFormat := cmd.Root().IsSet("format")
+	if explicitFormat {
+		format = cmd.Root().String("format")
+	}
 	transform := cmd.Root().String("transform")
-	return ShowJSON(os.Stdout, "accounts:contacts search", obj, format, transform)
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "accounts:contacts search",
+		Transform:      transform,
+	})
 }
