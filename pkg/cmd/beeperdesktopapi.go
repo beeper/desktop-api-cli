@@ -16,7 +16,7 @@ import (
 
 var focus = cli.Command{
 	Name:    "focus",
-	Usage:   "Focus Beeper Desktop and optionally navigate to a specific chat, message, or\npre-fill draft text and attachment.",
+	Usage:   "Focus Beeper Desktop and optionally navigate to a specific chat, message, or\npre-fill plain text and an image path.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -26,12 +26,12 @@ var focus = cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:     "draft-attachment-path",
-			Usage:    "Optional draft attachment path to populate in the message input field.",
+			Usage:    "Optional image path to populate in the message input field.",
 			BodyPath: "draftAttachmentPath",
 		},
 		&requestflag.Flag[string]{
 			Name:     "draft-text",
-			Usage:    "Optional draft text to populate in the message input field.",
+			Usage:    "Optional plain text to populate in the message input field.",
 			BodyPath: "draftText",
 		},
 		&requestflag.Flag[string]{

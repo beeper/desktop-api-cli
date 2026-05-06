@@ -21,20 +21,21 @@ var chatsMessagesReactionsDelete = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "message-id",
+			Usage:     "Message ID.",
 			Required:  true,
 			PathParam: "messageID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "reaction-key",
-			Usage:     "Reaction key to remove",
+			Usage:     "Reaction key to remove (emoji, shortcode, or custom emoji key)",
 			Required:  true,
-			QueryPath: "reactionKey",
+			PathParam: "reactionKey",
 		},
 	},
 	Action:          handleChatsMessagesReactionsDelete,
@@ -48,12 +49,13 @@ var chatsMessagesReactionsAdd = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},
 		&requestflag.Flag[string]{
 			Name:      "message-id",
+			Usage:     "Message ID.",
 			Required:  true,
 			PathParam: "messageID",
 		},
@@ -65,7 +67,7 @@ var chatsMessagesReactionsAdd = cli.Command{
 		},
 		&requestflag.Flag[string]{
 			Name:     "transaction-id",
-			Usage:    "Optional transaction ID for deduplication and local echo tracking",
+			Usage:    "Optional transaction ID for deduplication and send tracking",
 			BodyPath: "transactionID",
 		},
 	},
@@ -76,8 +78,8 @@ var chatsMessagesReactionsAdd = cli.Command{
 func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
 	unusedArgs := cmd.Args().Slice()
-	if !cmd.IsSet("message-id") && len(unusedArgs) > 0 {
-		cmd.Set("message-id", unusedArgs[0])
+	if !cmd.IsSet("reaction-key") && len(unusedArgs) > 0 {
+		cmd.Set("reaction-key", unusedArgs[0])
 		unusedArgs = unusedArgs[1:]
 	}
 	if len(unusedArgs) > 0 {
@@ -96,14 +98,15 @@ func handleChatsMessagesReactionsDelete(ctx context.Context, cmd *cli.Command) e
 	}
 
 	params := beeperdesktopapi.ChatMessageReactionDeleteParams{
-		ChatID: cmd.Value("chat-id").(string),
+		ChatID:    cmd.Value("chat-id").(string),
+		MessageID: cmd.Value("message-id").(string),
 	}
 
 	var res []byte
 	options = append(options, option.WithResponseBodyInto(&res))
 	_, err = client.Chats.Messages.Reactions.Delete(
 		ctx,
-		cmd.Value("message-id").(string),
+		cmd.Value("reaction-key").(string),
 		params,
 		options...,
 	)

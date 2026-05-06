@@ -111,8 +111,12 @@ func init() {
 				Commands: []*cli.Command{
 					&chatsCreate,
 					&chatsRetrieve,
+					&chatsUpdate,
 					&chatsList,
 					&chatsArchive,
+					&chatsMarkRead,
+					&chatsMarkUnread,
+					&chatsNotifyAnyway,
 					&chatsSearch,
 					&chatsStart,
 				},
@@ -140,8 +144,10 @@ func init() {
 				Category: "API RESOURCE",
 				Suggest:  true,
 				Commands: []*cli.Command{
+					&messagesRetrieve,
 					&messagesUpdate,
 					&messagesList,
+					&messagesDelete,
 					&messagesSearch,
 					&messagesSend,
 				},

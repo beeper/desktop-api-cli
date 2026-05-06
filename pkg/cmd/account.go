@@ -15,7 +15,7 @@ import (
 
 var accountsList = cli.Command{
 	Name:            "list",
-	Usage:           "Lists chat accounts across networks (WhatsApp, Telegram, Twitter/X, etc.)\nactively connected to this Beeper Desktop instance",
+	Usage:           "List Chat Accounts connected to this Beeper Desktop instance, including bridge\nmetadata and network identity.",
 	Suggest:         true,
 	Flags:           []cli.Flag{},
 	Action:          handleAccountsList,

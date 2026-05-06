@@ -15,7 +15,7 @@ import (
 
 var infoRetrieve = cli.Command{
 	Name:            "retrieve",
-	Usage:           "Returns app, platform, server, and endpoint discovery metadata for this Beeper\nDesktop instance.",
+	Usage:           "Returns app, platform, server, endpoint discovery, OAuth, and WebSocket metadata\nfor this Beeper Desktop instance.",
 	Suggest:         true,
 	Flags:           []cli.Flag{},
 	Action:          handleInfoRetrieve,

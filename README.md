@@ -54,6 +54,9 @@ beeper-desktop-cli [resource] <command> [flags...]
 ```sh
 beeper-desktop-cli chats search \
   --access-token 'My Access Token' \
+  --account-id matrix \
+  --account-id discordgo \
+  --account-id local-whatsapp_ba_EvYDBBsZbRQAy3UOSWqG0LuTVkc \
   --include-muted \
   --limit 3 \
   --type single

@@ -15,7 +15,7 @@ func TestChatsMessagesReactionsDelete(t *testing.T) {
 			"--access-token", "string",
 			"chats:messages:reactions", "delete",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--message-id", "messageID",
+			"--message-id", "1343993",
 			"--reaction-key", "x",
 		)
 	})
@@ -28,7 +28,7 @@ func TestChatsMessagesReactionsAdd(t *testing.T) {
 			"--access-token", "string",
 			"chats:messages:reactions", "add",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--message-id", "messageID",
+			"--message-id", "1343993",
 			"--reaction-key", "x",
 			"--transaction-id", "transactionID",
 		)
@@ -44,7 +44,7 @@ func TestChatsMessagesReactionsAdd(t *testing.T) {
 			"--access-token", "string",
 			"chats:messages:reactions", "add",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--message-id", "messageID",
+			"--message-id", "1343993",
 		)
 	})
 }
