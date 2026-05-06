@@ -16,7 +16,7 @@ import (
 
 var chatsCreate = cli.Command{
 	Name:    "create",
-	Usage:   "Create a direct or group chat from participant IDs.",
+	Usage:   "Create a direct or group chat from participant IDs. Returns the created chat.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -59,20 +59,94 @@ var chatsRetrieve = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},
 		&requestflag.Flag[*int64]{
 			Name:      "max-participant-count",
-			Usage:     "Maximum number of participants to return. Use -1 for all; otherwise 0–500. Defaults to all (-1).",
-			Default:   requestflag.Ptr[int64](-1),
+			Usage:     "Maximum number of participants to return. Use -1 for all; otherwise 0-500. Defaults to 100. List and search endpoints return up to 20 participants per chat.",
+			Default:   requestflag.Ptr[int64](100),
 			QueryPath: "maxParticipantCount",
 		},
 	},
 	Action:          handleChatsRetrieve,
 	HideHelpCommand: true,
 }
+
+var chatsUpdate = requestflag.WithInnerFlags(cli.Command{
+	Name:    "update",
+	Usage:   "Update supported chat fields. Non-empty draft objects are accepted only when the\ncurrent draft is empty. Send draft=null to clear the draft before setting new\ndraft text or attachments.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+		&requestflag.Flag[*string]{
+			Name:     "description",
+			Usage:    "Group chat description/topic. Support depends on the chat account and chat permissions.",
+			BodyPath: "description",
+		},
+		&requestflag.Flag[map[string]any]{
+			Name:     "draft",
+			Usage:    "Draft object to set or clear. Non-empty drafts are only accepted when the current draft is empty. Send draft=null to clear text and attachments together before setting a new draft.",
+			BodyPath: "draft",
+		},
+		&requestflag.Flag[*string]{
+			Name:     "img-url",
+			Usage:    "Local filesystem path to a group chat avatar image. Support depends on the chat account and chat permissions.",
+			BodyPath: "imgURL",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "is-archived",
+			Usage:    "Archive or unarchive the chat.",
+			BodyPath: "isArchived",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "is-low-priority",
+			Usage:    "Mark or unmark the chat as low priority when supported by the account.",
+			BodyPath: "isLowPriority",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "is-muted",
+			Usage:    "Mute or unmute the chat.",
+			BodyPath: "isMuted",
+		},
+		&requestflag.Flag[bool]{
+			Name:     "is-pinned",
+			Usage:    "Pin or unpin the chat when supported by the account.",
+			BodyPath: "isPinned",
+		},
+		&requestflag.Flag[*int64]{
+			Name:     "message-expiry-seconds",
+			Usage:    "Disappearing-message timer in seconds, or null to clear when supported.",
+			BodyPath: "messageExpirySeconds",
+		},
+		&requestflag.Flag[*string]{
+			Name:     "title",
+			Usage:    "Custom chat title. Support depends on the chat account and chat permissions.",
+			BodyPath: "title",
+		},
+	},
+	Action:          handleChatsUpdate,
+	HideHelpCommand: true,
+}, map[string][]requestflag.HasOuterFlag{
+	"draft": {
+		&requestflag.InnerFlag[string]{
+			Name:       "draft.text",
+			Usage:      "Draft text. Plain text and Markdown are converted to Matrix HTML with the same rules used by send and edit.",
+			InnerField: "text",
+		},
+		&requestflag.InnerFlag[map[string]any]{
+			Name:       "draft.attachments",
+			Usage:      "Draft attachments keyed by attachment ID. Each attachment must reference an uploadID returned by the upload file endpoint.",
+			InnerField: "attachments",
+		},
+	},
+})
 
 var chatsList = cli.Command{
 	Name:    "list",
@@ -110,7 +184,7 @@ var chatsArchive = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},
@@ -122,6 +196,64 @@ var chatsArchive = cli.Command{
 		},
 	},
 	Action:          handleChatsArchive,
+	HideHelpCommand: true,
+}
+
+var chatsMarkRead = cli.Command{
+	Name:    "mark-read",
+	Usage:   "Mark a chat as read, optionally through a specific message ID.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-id",
+			Usage:    "Optional message ID to mark read through.",
+			BodyPath: "messageID",
+		},
+	},
+	Action:          handleChatsMarkRead,
+	HideHelpCommand: true,
+}
+
+var chatsMarkUnread = cli.Command{
+	Name:    "mark-unread",
+	Usage:   "Mark a chat as unread, optionally from a specific message ID.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+		&requestflag.Flag[string]{
+			Name:     "message-id",
+			Usage:    "Optional message ID to mark unread from.",
+			BodyPath: "messageID",
+		},
+	},
+	Action:          handleChatsMarkUnread,
+	HideHelpCommand: true,
+}
+
+var chatsNotifyAnyway = cli.Command{
+	Name:    "notify-anyway",
+	Usage:   "Force a delivery notification when supported by the underlying network.\nCurrently intended for iMessage on macOS; unsupported networks return an error.",
+	Suggest: true,
+	Flags: []cli.Flag{
+		&requestflag.Flag[string]{
+			Name:      "chat-id",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
+			Required:  true,
+			PathParam: "chatID",
+		},
+	},
+	Action:          handleChatsNotifyAnyway,
 	HideHelpCommand: true,
 }
 
@@ -205,7 +337,7 @@ var chatsSearch = cli.Command{
 
 var chatsStart = requestflag.WithInnerFlags(cli.Command{
 	Name:    "start",
-	Usage:   "Resolve a user/contact and open a direct chat. Reuses an existing direct chat\nwhen one is found. Available in Beeper Desktop v4.2.799+.",
+	Usage:   "Resolve a user/contact and open a direct chat. Reuses and returns an existing\ndirect chat when one is found. Available in Beeper Desktop v4.2.808+.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -357,6 +489,55 @@ func handleChatsRetrieve(ctx context.Context, cmd *cli.Command) error {
 	})
 }
 
+func handleChatsUpdate(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("chat-id") && len(unusedArgs) > 0 {
+		cmd.Set("chat-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.ChatUpdateParams{}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.Update(
+		ctx,
+		cmd.Value("chat-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats update",
+		Transform:      transform,
+	})
+}
+
 func handleChatsList(ctx context.Context, cmd *cli.Command) error {
 	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
 	unusedArgs := cmd.Args().Slice()
@@ -445,6 +626,153 @@ func handleChatsArchive(ctx context.Context, cmd *cli.Command) error {
 		params,
 		options...,
 	)
+}
+
+func handleChatsMarkRead(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("chat-id") && len(unusedArgs) > 0 {
+		cmd.Set("chat-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.ChatMarkReadParams{}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.MarkRead(
+		ctx,
+		cmd.Value("chat-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats mark-read",
+		Transform:      transform,
+	})
+}
+
+func handleChatsMarkUnread(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("chat-id") && len(unusedArgs) > 0 {
+		cmd.Set("chat-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		ApplicationJSON,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.ChatMarkUnreadParams{}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.MarkUnread(
+		ctx,
+		cmd.Value("chat-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats mark-unread",
+		Transform:      transform,
+	})
+}
+
+func handleChatsNotifyAnyway(ctx context.Context, cmd *cli.Command) error {
+	client := beeperdesktopapi.NewClient(getDefaultRequestOptions(cmd)...)
+	unusedArgs := cmd.Args().Slice()
+	if !cmd.IsSet("chat-id") && len(unusedArgs) > 0 {
+		cmd.Set("chat-id", unusedArgs[0])
+		unusedArgs = unusedArgs[1:]
+	}
+	if len(unusedArgs) > 0 {
+		return fmt.Errorf("Unexpected extra arguments: %v", unusedArgs)
+	}
+
+	options, err := flagOptions(
+		cmd,
+		apiquery.NestedQueryFormatBrackets,
+		apiquery.ArrayQueryFormatRepeat,
+		EmptyBody,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+
+	params := beeperdesktopapi.ChatNotifyAnywayParams{}
+
+	var res []byte
+	options = append(options, option.WithResponseBodyInto(&res))
+	_, err = client.Chats.NotifyAnyway(
+		ctx,
+		cmd.Value("chat-id").(string),
+		params,
+		options...,
+	)
+	if err != nil {
+		return err
+	}
+
+	obj := gjson.ParseBytes(res)
+	format := cmd.Root().String("format")
+	explicitFormat := cmd.Root().IsSet("format")
+	transform := cmd.Root().String("transform")
+	return ShowJSON(obj, ShowJSONOpts{
+		ExplicitFormat: explicitFormat,
+		Format:         format,
+		RawOutput:      cmd.Root().Bool("raw-output"),
+		Title:          "chats notify-anyway",
+		Transform:      transform,
+	})
 }
 
 func handleChatsSearch(ctx context.Context, cmd *cli.Command) error {

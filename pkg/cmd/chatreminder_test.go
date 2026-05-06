@@ -16,7 +16,7 @@ func TestChatsRemindersCreate(t *testing.T) {
 			"--access-token", "string",
 			"chats:reminders", "create",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--reminder", "{remindAtMs: 0, dismissOnIncomingMessage: true}",
+			"--reminder", "{remindAt: '2025-08-31T23:30:12.520Z', dismissOnIncomingMessage: true}",
 		)
 	})
 
@@ -30,7 +30,7 @@ func TestChatsRemindersCreate(t *testing.T) {
 			"--access-token", "string",
 			"chats:reminders", "create",
 			"--chat-id", "!NCdzlIaMjZUmvmvyHU:beeper.com",
-			"--reminder.remind-at-ms", "0",
+			"--reminder.remind-at", "2025-08-31T23:30:12.520Z",
 			"--reminder.dismiss-on-incoming-message=true",
 		)
 	})
@@ -39,7 +39,7 @@ func TestChatsRemindersCreate(t *testing.T) {
 		// Test piping YAML data over stdin
 		pipeData := []byte("" +
 			"reminder:\n" +
-			"  remindAtMs: 0\n" +
+			"  remindAt: '2025-08-31T23:30:12.520Z'\n" +
 			"  dismissOnIncomingMessage: true\n")
 		mocktest.TestRunMockTestWithPipeAndFlags(
 			t, pipeData,

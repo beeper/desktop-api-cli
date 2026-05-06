@@ -19,7 +19,7 @@ var chatsRemindersCreate = requestflag.WithInnerFlags(cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},
@@ -34,10 +34,10 @@ var chatsRemindersCreate = requestflag.WithInnerFlags(cli.Command{
 	HideHelpCommand: true,
 }, map[string][]requestflag.HasOuterFlag{
 	"reminder": {
-		&requestflag.InnerFlag[float64]{
-			Name:       "reminder.remind-at-ms",
-			Usage:      "Unix timestamp in milliseconds when reminder should trigger",
-			InnerField: "remindAtMs",
+		&requestflag.InnerFlag[any]{
+			Name:       "reminder.remind-at",
+			Usage:      "Timestamp when the reminder should trigger.",
+			InnerField: "remindAt",
 		},
 		&requestflag.InnerFlag[bool]{
 			Name:       "reminder.dismiss-on-incoming-message",
@@ -54,7 +54,7 @@ var chatsRemindersDelete = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "chat-id",
-			Usage:     "Unique identifier of the chat.",
+			Usage:     "Chat ID. Input routes also accept the local chat ID from this Beeper Desktop installation when available.",
 			Required:  true,
 			PathParam: "chatID",
 		},

@@ -17,12 +17,12 @@ import (
 
 var assetsDownload = cli.Command{
 	Name:    "download",
-	Usage:   "Download a Matrix asset using its mxc:// or localmxc:// URL to the device\nrunning Beeper Desktop and return the local file URL.",
+	Usage:   "Download a Matrix file using its mxc:// or localmxc:// URL to the device running\nBeeper Desktop and return the local file URL.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:     "url",
-			Usage:    "Matrix content URL (mxc:// or localmxc://) for the asset to download.",
+			Usage:    "Matrix content URL (mxc:// or localmxc://) for the file to download.",
 			Required: true,
 			BodyPath: "url",
 		},
@@ -38,7 +38,7 @@ var assetsServe = cli.Command{
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
 			Name:      "url",
-			Usage:     "Asset URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
+			Usage:     "File URL to serve. Accepts mxc://, localmxc://, or file:// URLs.",
 			Required:  true,
 			QueryPath: "url",
 		},
@@ -54,25 +54,24 @@ var assetsServe = cli.Command{
 
 var assetsUpload = cli.Command{
 	Name:    "upload",
-	Usage:   "Upload a file to a temporary location using multipart/form-data. Returns an\nuploadID that can be referenced when sending messages with attachments.",
+	Usage:   "Upload a file to a temporary location using multipart/form-data. Returns an\nuploadID that can be referenced when sending a message or materializing a draft\nattachment.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
-			Name:     "content",
-			Usage:    "Base64-encoded file content (max ~500MB decoded)",
-			Required: true,
-			BodyPath: "content",
+			Name:      "file",
+			Usage:     "The file to upload (max 500 MB).",
+			Required:  true,
+			BodyPath:  "file",
+			FileInput: true,
 		},
 		&requestflag.Flag[string]{
 			Name:     "file-name",
-			Usage:    "Original filename. Required for the JSON form of /v1/assets/upload.",
-			Required: true,
+			Usage:    "Original filename. Defaults to the uploaded file name if omitted",
 			BodyPath: "fileName",
 		},
 		&requestflag.Flag[string]{
 			Name:     "mime-type",
-			Usage:    "MIME type. Required for the JSON form of /v1/assets/upload.",
-			Required: true,
+			Usage:    "MIME type. Auto-detected from magic bytes if omitted",
 			BodyPath: "mimeType",
 		},
 	},
@@ -82,7 +81,7 @@ var assetsUpload = cli.Command{
 
 var assetsUploadBase64 = cli.Command{
 	Name:    "upload-base64",
-	Usage:   "Upload a file using a JSON body with base64-encoded content. Returns an uploadID\nthat can be referenced when sending messages with attachments. Alternative to\nthe multipart upload endpoint.",
+	Usage:   "Upload a file using a JSON body with base64-encoded content. Returns an uploadID\nthat can be referenced when sending a message or materializing a draft\nattachment. Alternative to the multipart upload endpoint.",
 	Suggest: true,
 	Flags: []cli.Flag{
 		&requestflag.Flag[string]{
@@ -191,7 +190,7 @@ func handleAssetsUpload(ctx context.Context, cmd *cli.Command) error {
 		cmd,
 		apiquery.NestedQueryFormatBrackets,
 		apiquery.ArrayQueryFormatRepeat,
-		ApplicationJSON,
+		MultipartFormEncoded,
 		false,
 	)
 	if err != nil {
