@@ -1,53 +1,37 @@
-import { Args } from '@oclif/core'
-import { BeeperCommand } from '../../lib/command.js'
-import { createClient } from '../../lib/client.js'
+import { Args, Flags } from '@oclif/core'
+import { BridgeCommand } from '../../lib/bridges/command.js'
 import { printData } from '../../lib/output.js'
+import { prepareBridgeEnv } from '../../lib/bridges/manager.js'
 
-export default class BridgesShow extends BeeperCommand {
-  static override summary = 'Show bridge details, login flows, and connected accounts'
+export default class BridgesShow extends BridgeCommand {
+  static override summary = 'Show self-hosted bridge type details'
   static override args = {
-    bridge: Args.string({ required: true, description: 'Bridge ID, display name, network, or type' }),
+    bridge: Args.string({ required: true, description: 'Bridge type' }),
+  }
+  static override flags = {
+    env: Flags.string({ description: 'Beeper environment or domain (prod, staging, dev, local, or a domain)' }),
+    template: Flags.boolean({ default: false, description: 'Print the raw template' }),
   }
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(BridgesShow)
-    const client = await createClient(flags)
-    const response = await client.bridges.list()
-    const listBridge = resolveBridge(((response as unknown as { items?: Array<Record<string, unknown>> }).items ?? []), args.bridge)
-    const bridgeID = String(listBridge.id)
-    const [bridge, loginFlows, capabilities] = await Promise.all([
-      client.bridges.retrieve(bridgeID).catch(() => listBridge),
-      client.bridges.loginFlows.list(bridgeID).catch(() => undefined),
-      client.bridges.retrieveCapabilities(bridgeID).catch(() => undefined),
-    ])
+    const env = await prepareBridgeEnv(flags)
+    const templateName = `${args.bridge}.tpl.yaml`
+    const template = env.catalog.templates[templateName]
+    if (!template) throw new Error(`Unknown bridge type "${args.bridge}".`)
+    if (flags.template && !flags.json) {
+      process.stdout.write(template)
+      return
+    }
+    const official = env.catalog.officialBridges.find(item => item.typeName === args.bridge)
     await printData({
-      ...bridge,
-      loginFlows: loginFlows ? (loginFlows as { items?: unknown[] }).items ?? loginFlows : undefined,
-      capabilities,
+      id: args.bridge,
+      bridgeType: args.bridge,
+      names: official?.names ?? [],
+      websocket: Boolean(env.catalog.websocketBridges[args.bridge]),
+      ipSuffix: env.catalog.bridgeIPSuffix[args.bridge],
+      template: templateName,
+      templateBody: flags.template ? template : undefined,
     }, flags.json ? 'json' : 'human')
   }
-}
-
-function resolveBridge(items: Array<Record<string, unknown>>, input: string): Record<string, unknown> {
-  const normalizedInput = normalize(input)
-  const fields = (item: Record<string, unknown>): unknown[] => [item.id, item.displayName, item.network, item.type]
-
-  const exact = items.filter(item => fields(item).some(value => normalize(value) === normalizedInput))
-  if (exact.length === 1) return exact[0]!
-  if (exact.length > 1) throw ambiguousBridge(input, exact)
-
-  const partial = items.filter(item => fields(item).some(value => normalize(value).includes(normalizedInput)))
-  if (partial.length === 1) return partial[0]!
-  if (partial.length > 1) throw ambiguousBridge(input, partial)
-
-  throw new Error(`Unknown bridge "${input}". Run \`beeper bridges list\`.`)
-}
-
-function ambiguousBridge(input: string, matches: Array<Record<string, unknown>>): Error {
-  const options = matches.map(item => `${String(item.displayName ?? item.id)} (${String(item.id)})`).join(', ')
-  return new Error(`Bridge "${input}" is ambiguous. Use one of: ${options}`)
-}
-
-function normalize(value: unknown): string {
-  return String(value ?? '').toLowerCase().replaceAll(/[^a-z0-9]+/g, '')
 }

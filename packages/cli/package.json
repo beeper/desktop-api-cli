@@ -23,6 +23,7 @@
   "scripts": {
     "build": "bun run clean && bun scripts/prepare-desktop-api.ts && bun scripts/generate-command-map.ts && tsc -p tsconfig.json",
     "binary": "bun run build && bun scripts/build-binaries.ts",
+    "bridges:sync-config": "bun scripts/sync-bridge-manager-config.ts",
     "release:local": "bun run build && bun scripts/build-binaries.ts && BEEPER_CLI_REQUIRE_MACOS_SIGNING=1 bun scripts/sign-macos-binaries.ts && bun scripts/build-homebrew-archive.ts && (cd ../npm && bun run build) && bun scripts/publish-local-release.ts",
     "check:api-copy": "bun run build && bun scripts/check-api-copy.ts",
     "check:readme": "bun run build && bun scripts/generate-readme.ts --check",

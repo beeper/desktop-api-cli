@@ -9,7 +9,14 @@ const outPath = join(root, 'src', 'commands.generated.ts')
 
 const listAliases: Record<string, string[]> = {
   'accounts:list': ['accounts'],
+  'bridges:config': ['bridges:c'],
+  'bridges:delete': ['bridges:d'],
   'bridges:list': ['bridges'],
+  'bridges:login': ['bridges:l'],
+  'bridges:login-password': ['bridges:p'],
+  'bridges:proxy': ['bridges:x'],
+  'bridges:register': ['bridges:r'],
+  'bridges:whoami': ['bridges:w'],
   'chats:list': ['chats', 'accounts:chats', 'ls'],
   'contacts:list': ['contacts'],
   'messages:search': ['search'],
