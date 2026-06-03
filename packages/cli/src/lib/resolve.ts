@@ -1,19 +1,18 @@
+import { apiItems, apiRecord, type APIRecord } from './api-values.js'
 import { readConfig } from './targets.js'
-import { ambiguous, notFound } from './errors.js'
-import { confirmSuggestion, declineWithExit127, rankSuggestions } from './did-you-mean.js'
-import { collectPage } from './output.js'
+import { AbortError, CLIError, ExitCodes } from './errors.js'
+import { collectPage } from './paging.js'
+import { promptConfirm } from './prompts.js'
 
-type AnyRecord = Record<string, any>
-
-export type AccountResolutionOptions = {
+type AccountResolutionOptions = {
   allowMultiplePerInput?: boolean
   applyDefault?: boolean
 }
 
-export type ChatResolutionOptions = {
+type ChatResolutionOptions = {
   accountIDs?: string[]
+  noInput?: boolean
   pick?: number
-  assumeYes?: boolean
 }
 
 export async function resolveAccountIDs(
@@ -23,24 +22,22 @@ export async function resolveAccountIDs(
 ): Promise<string[] | undefined> {
   let effectiveInputs = inputs
   if (!effectiveInputs?.length && options.applyDefault !== false) {
-    const config = await readConfig().catch(() => ({} as { defaultAccount?: string }))
+    const config = await readConfig()
     if (config.defaultAccount) effectiveInputs = [config.defaultAccount]
   }
   if (!effectiveInputs?.length) return undefined
 
-  const accounts = accountItems(await client.accounts.list())
+  const accounts = apiItems(await client.accounts.list())
   const resolved: string[] = []
   for (const input of effectiveInputs) {
     const matches = matchAccounts(accounts, input)
-    if (matches.length === 0) throw notFound(`No account matches "${input}"`, { selector: input, kind: 'account' })
-    if (matches.length > 1 && !options.allowMultiplePerInput) {
-      throw ambiguous(formatAmbiguous(`account "${input}"`, matches.map(formatAccount)), {
-        selector: input,
-        kind: 'account',
-        candidates: matches.map((account, index) => ({ pick: index + 1, id: String(account.accountID ?? account.id), label: formatAccount(account) })),
-      })
+    if (matches.length === 0) {
+      throw new AbortError(`No account matches "${input}"`, ExitCodes.NotFound, undefined, 'not_found')
     }
-    resolved.push(...matches.map(account => String(account.accountID)))
+    if (matches.length > 1 && !options.allowMultiplePerInput) {
+      throw new AbortError(formatAmbiguous(`account "${input}"`, matches.map(formatAccount)), ExitCodes.Ambiguous, 'Pass an exact ID or --pick N.', 'ambiguous_selector')
+    }
+    resolved.push(...matches.map(accountIDOf).filter(Boolean))
   }
 
   return Array.from(new Set(resolved))
@@ -48,13 +45,15 @@ export async function resolveAccountIDs(
 
 export async function resolveAccountID(client: any, input: string): Promise<string> {
   const [accountID] = await resolveAccountIDs(client, [input]) ?? []
-  if (!accountID) throw notFound(`No account matches "${input}"`, { selector: input, kind: 'account' })
+  if (!accountID) {
+    throw new AbortError(`No account matches "${input}"`, ExitCodes.NotFound, undefined, 'not_found')
+  }
   return accountID
 }
 
 export async function listAccountIDs(client: any): Promise<string[]> {
-  const accounts = accountItems(await client.accounts.list())
-  return accounts.map(account => String(account.accountID)).filter(Boolean)
+  const accounts = apiItems(await client.accounts.list())
+  return accounts.map(accountIDOf).filter(Boolean)
 }
 
 export async function resolveChatID(client: any, input: string, options: ChatResolutionOptions = {}): Promise<string> {
@@ -62,55 +61,46 @@ export async function resolveChatID(client: any, input: string, options: ChatRes
   const exact = await retrieveChat(client, input)
   if (exact) return chatInputID(exact)
 
-  const candidates = await collectPage<AnyRecord>(client.chats.search({
+  const candidates = await collectPage<APIRecord>(client.chats.search({
     accountIDs: options.accountIDs,
     query: input,
     scope: 'titles',
   }), 10)
 
-  const normalizedInput = normalize(input)
+  const normalizedInput = normalizeSelector(input)
   const exactMatches = candidates.filter(chat =>
-    normalize(chat.id) === normalizedInput ||
-    normalize(chat.localChatID) === normalizedInput ||
-    normalize(chat.title) === normalizedInput
+    normalizeSelector(chat.id) === normalizedInput ||
+    normalizeSelector(chat.localChatID) === normalizedInput ||
+    normalizeSelector(chat.title) === normalizedInput
   )
   const matches = exactMatches.length ? exactMatches : candidates
   if (matches.length === 0) {
     const suggestion = await suggestChat(client, input, options)
     if (suggestion) return suggestion
-    throw notFound(`No chat matches "${input}"`, { selector: input, kind: 'chat' })
+    throw new AbortError(`No chat matches "${input}"`, ExitCodes.NotFound, undefined, 'not_found')
   }
   if (matches.length === 1) return chatInputID(matches[0]!)
 
   if (options.pick) {
     const selected = matches[options.pick - 1]
-    if (!selected) throw notFound(`--pick ${options.pick} is outside the ${matches.length} matching chats`, { selector: input, kind: 'chat', pick: options.pick, count: matches.length })
+    if (!selected) {
+      throw new AbortError(`--pick ${options.pick} is outside the ${matches.length} matching chats`, ExitCodes.NotFound, undefined, 'not_found')
+    }
     return chatInputID(selected)
   }
 
-  throw ambiguous(formatAmbiguous(`chat "${input}"`, matches.map(formatChat)), {
-    selector: input,
-    kind: 'chat',
-    candidates: matches.map((chat, index) => ({
-      pick: index + 1,
-      id: String(chat.id),
-      localChatID: chat.localChatID ? String(chat.localChatID) : undefined,
-      title: chat.title ? String(chat.title) : undefined,
-      network: chat.network ? String(chat.network) : undefined,
-      label: formatChat(chat),
-    })),
-  })
+  throw new AbortError(formatAmbiguous(`chat "${input}"`, matches.map(formatChat)), ExitCodes.Ambiguous, 'Pass an exact ID or --pick N.', 'ambiguous_selector')
 }
 
 async function suggestChat(client: any, input: string, options: ChatResolutionOptions): Promise<string | undefined> {
-  if (process.env.BEEPER_NO_INPUT === '1') return undefined
-  let pool: AnyRecord[]
+  if (options.noInput) return undefined
+  let pool: APIRecord[]
   try {
-    pool = await collectPage<AnyRecord>(client.chats.list({ accountIDs: options.accountIDs, limit: 100 }), 100)
+    pool = await collectPage<APIRecord>(client.chats.list({ accountIDs: options.accountIDs, limit: 100 }), 100)
   } catch {
     return undefined
   }
-  const ranked = rankSuggestions(input, pool, chat => chat.title as string | undefined, 3)
+  const ranked = rankSuggestions(input, pool, chat => typeof chat.title === 'string' ? chat.title : undefined)
   const top = ranked[0]
   if (!top) return undefined
   const detail = top.value.network ? ` (${top.value.network})` : ''
@@ -119,42 +109,74 @@ async function suggestChat(client: any, input: string, options: ChatResolutionOp
   for (const alt of ranked.slice(1)) {
     process.stderr.write(`  also: ${alt.label}${alt.value.network ? ` (${alt.value.network})` : ''}\n`)
   }
-  const ok = await confirmSuggestion('use it?', { assumeYes: options.assumeYes, timeoutMs: 10_000 })
-  if (!ok) declineWithExit127(`no chat selected for "${input}"`)
+  const ok = process.stdin.isTTY && process.stderr.isTTY
+    ? await promptConfirm('use it?', true, process.stderr)
+    : false
+  if (!ok) throw new CLIError(`no chat selected for "${input}"`, ExitCodes.CommandNotFound)
   return chatInputID(top.value)
 }
 
-function accountItems(accounts: unknown): AnyRecord[] {
-  if (Array.isArray(accounts)) return accounts as AnyRecord[]
-  return ((accounts as { items?: AnyRecord[] }).items ?? [])
+type Suggestion<T> = { value: T; label: string; distance: number }
+
+function rankSuggestions<T>(query: string, items: T[], labelOf: (item: T) => string | undefined): Suggestion<T>[] {
+  const q = query.trim().toLowerCase()
+  const scored: Suggestion<T>[] = []
+  for (const item of items) {
+    const label = labelOf(item)
+    if (!label) continue
+    const l = label.toLowerCase()
+    const distance = Math.min(levenshtein(q, l), l.includes(q) ? Math.max(0, l.length - q.length) : Infinity)
+    if (Number.isFinite(distance)) scored.push({ value: item, label, distance })
+  }
+  scored.sort((a, b) => a.distance - b.distance || a.label.length - b.label.length)
+  const cutoff = Math.max(3, Math.ceil(q.length * 0.6))
+  return scored.filter(suggestion => suggestion.distance <= cutoff).slice(0, 3)
 }
 
-function matchAccounts(accounts: AnyRecord[], input: string): AnyRecord[] {
-  const normalizedInput = normalize(input)
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0
+  if (!a.length) return b.length
+  if (!b.length) return a.length
+  const matrix: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array(b.length).fill(0)])
+  for (let j = 1; j <= b.length; j++) matrix[0]![j] = j
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1
+      matrix[i]![j] = Math.min(matrix[i - 1]![j]! + 1, matrix[i]![j - 1]! + 1, matrix[i - 1]![j - 1]! + cost)
+    }
+  }
+  return matrix[a.length]![b.length]!
+}
+
+function matchAccounts(accounts: APIRecord[], input: string): APIRecord[] {
+  const normalizedInput = normalizeSelector(input)
   const exact = accounts.filter(account =>
-    normalize(account.accountID) === normalizedInput ||
-    normalize(account.network) === normalizedInput ||
-    normalize(account.bridge?.type) === normalizedInput ||
-    normalize(account.bridge?.id) === normalizedInput ||
-    normalize(account.user?.id) === normalizedInput ||
-    normalize(account.user?.username) === normalizedInput ||
-    normalize(account.user?.displayName) === normalizedInput ||
-    normalize(account.user?.name) === normalizedInput ||
-    normalize(account.user?.email) === normalizedInput
+    accountKeys(account).some(value => normalizeSelector(value) === normalizedInput)
   )
   if (exact.length) return exact
 
   return accounts.filter(account =>
-    includesNormalized(account.accountID, normalizedInput) ||
-    includesNormalized(account.network, normalizedInput) ||
-    includesNormalized(account.bridge?.type, normalizedInput) ||
-    includesNormalized(account.bridge?.id, normalizedInput) ||
-    includesNormalized(account.user?.displayName, normalizedInput) ||
-    includesNormalized(account.user?.name, normalizedInput)
+    accountKeys(account).some(value => normalizeSelector(value).includes(normalizedInput))
   )
 }
 
-async function retrieveChat(client: any, input: string): Promise<AnyRecord | undefined> {
+function accountKeys(account: APIRecord): unknown[] {
+  const bridge = apiRecord(account.bridge)
+  const user = apiRecord(account.user)
+  return [
+    account.accountID,
+    account.network,
+    bridge.type,
+    bridge.id,
+    user.id,
+    user.username,
+    user.displayName,
+    user.name,
+    user.email,
+  ]
+}
+
+async function retrieveChat(client: any, input: string): Promise<APIRecord | undefined> {
   try {
     return await client.chats.retrieve(input, { maxParticipantCount: 0 })
   } catch (error) {
@@ -164,36 +186,42 @@ async function retrieveChat(client: any, input: string): Promise<AnyRecord | und
   }
 }
 
-function normalize(value: unknown): string {
+export function normalizeSelector(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/[\s._-]+/g, '')
-}
-
-function includesNormalized(value: unknown, normalizedInput: string): boolean {
-  return normalize(value).includes(normalizedInput)
 }
 
 function formatAmbiguous(label: string, choices: string[]): string {
   return `Ambiguous ${label}. Use an exact ID or --pick N:\n${choices.map((choice, index) => `  ${index + 1}. ${choice}`).join('\n')}`
 }
 
-function formatAccount(account: AnyRecord): string {
+function formatAccount(account: APIRecord): string {
+  const bridge = apiRecord(account.bridge)
+  const user = apiRecord(account.user)
   const network = account.network ? ` ${account.network}` : ''
-  const bridge = account.bridge?.type ? ` ${account.bridge.type}` : ''
-  const user = account.user?.displayName || account.user?.name || account.user?.username || account.user?.id || ''
-  return `${account.accountID}${network}${bridge}${user ? ` ${user}` : ''}`
+  const bridgeName = bridge.type ? ` ${bridge.type}` : ''
+  const userName = user.displayName || user.name || user.username || user.id || ''
+  return `${accountIDOf(account) || account.id || ''}${network}${bridgeName}${userName ? ` ${userName}` : ''}`
 }
 
-function formatChat(chat: AnyRecord): string {
+function accountIDOf(account: APIRecord): string {
+  return typeof account.accountID === 'string' && account.accountID
+    ? account.accountID
+    : typeof account.id === 'string' && account.id
+      ? account.id
+      : ''
+}
+
+function formatChat(chat: APIRecord): string {
   const network = chat.network ? ` ${chat.network}` : ''
   const local = chat.localChatID ? ` local:${chat.localChatID}` : ''
   return `${chat.id}${local}${network} ${chat.title ?? ''}`.trim()
 }
 
-function chatInputID(chat: AnyRecord): string {
+function chatInputID(chat: APIRecord): string {
   return String(chat.localChatID || chat.id)
 }
 
-export function userQueryFromInput(input: string): AnyRecord {
+export function userQueryFromInput(input: string): APIRecord {
   const trimmed = input.trim()
   if (/^@[^:]+:.+/.test(trimmed)) return { id: trimmed, username: trimmed }
   if (trimmed.includes('@')) return { email: trimmed, username: trimmed }

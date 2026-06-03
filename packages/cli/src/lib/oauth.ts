@@ -1,17 +1,19 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 import { spawn } from 'node:child_process'
-import { createPKCEPair, createState } from './pkce.js'
-import { updateConfig, type AuthSource } from './targets.js'
 
-export type OAuthLoginOptions = {
+type OAuthLoginOptions = {
   baseURL: string
   clientName: string
   openBrowser: boolean
-  save?: boolean
   scope: string
-  source?: AuthSource
   timeoutMs?: number
+}
+
+type PKCEPair = {
+  codeChallenge: string
+  codeVerifier: string
 }
 
 type RegisterResponse = {
@@ -20,7 +22,7 @@ type RegisterResponse = {
   token_endpoint?: string
 }
 
-type TokenResponse = {
+export type TokenResponse = {
   access_token: string
   expires_in?: number
   scope?: string
@@ -59,25 +61,20 @@ export async function loginWithPKCE(options: OAuthLoginOptions): Promise<TokenRe
       redirectURI,
     )
 
-    if (options.save !== false) {
-      await updateConfig(config => ({
-        ...config,
-        baseURL: options.baseURL,
-        auth: {
-          accessToken: token.access_token,
-          clientID: registered.client_id,
-          expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : undefined,
-          scope: token.scope,
-          source: options.source,
-          tokenType: token.token_type,
-        },
-      }))
-    }
-
     return { ...token, clientID: registered.client_id }
   } finally {
     await callback.close()
   }
+}
+
+function createPKCEPair(): PKCEPair {
+  const codeVerifier = randomBytes(64).toString('base64url')
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+  return { codeChallenge, codeVerifier }
+}
+
+function createState(): string {
+  return randomBytes(24).toString('base64url')
 }
 
 async function registerClient(baseURL: string, clientName: string, redirectURI: string, scope: string): Promise<RegisterResponse> {

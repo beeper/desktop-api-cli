@@ -1,145 +1,40 @@
 {
-  "name": "@beeper/cli",
+  "name": "beeper-cli",
   "version": "0.6.2",
   "description": "Beeper CLI",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "beeper": "bin/run.js"
+    "beeper": "bin/cli.js"
   },
   "exports": {
-    "./plugin-sdk": {
-      "types": "./dist/plugin-sdk.d.ts",
-      "import": "./dist/plugin-sdk.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
-    "bin",
+    "bin/cli.js",
     "dist",
+    "safety-profiles",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun run clean && bun scripts/prepare-desktop-api.ts && bun scripts/generate-command-map.ts && tsc -p tsconfig.json",
-    "binary": "bun run build && bun scripts/build-binaries.ts",
-    "bridges:sync-config": "bun scripts/sync-bridge-manager-config.ts",
-    "release:local": "bun run build && bun scripts/build-binaries.ts && BEEPER_CLI_REQUIRE_MACOS_SIGNING=1 bun scripts/sign-macos-binaries.ts && bun scripts/build-homebrew-archive.ts && (cd ../npm && bun run build) && bun scripts/publish-local-release.ts",
-    "check:api-copy": "bun run build && bun scripts/check-api-copy.ts",
-    "check:readme": "bun run build && bun scripts/generate-readme.ts --check",
+    "build": "bun run clean && bun scripts/prepare-desktop-api.ts && tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "dev": "bun ./bin/dev.js",
-    "dev:shim": "node ./bin/run.js",
     "e2e:staging": "bun run build && bun test/e2e-staging.ts",
-    "pack:homebrew": "bun run binary && bun scripts/sign-macos-binaries.ts && bun scripts/build-homebrew-archive.ts",
-    "readme": "bun run build && bun scripts/generate-readme.ts",
-    "test": "bun run build && bun scripts/generate-readme.ts --check && bun scripts/check-api-copy.ts && bun scripts/check-manifest.ts && bun ./test/cli-smoke.ts && bun test",
+    "test": "bun run build && bun ./test/cli-smoke.ts && bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "oclif": {
-    "additionalHelpFlags": [
-      "-h"
-    ],
-    "commands": {
-      "strategy": "explicit",
-      "target": "./dist/commands.generated.js",
-      "identifier": "commands"
-    },
-    "bin": "beeper",
-    "dirname": "beeper",
-    "flexibleTaxonomy": true,
-    "helpOptions": {
-      "maxWidth": 100,
-      "hideAliasesFromRoot": true,
-      "hideCommandSummaryInDescription": true
-    },
-    "scope": "beeper",
-    "pluginPrefix": "plugin",
-    "jitPlugins": {
-      "@beeper/cli-plugin-cloudflare": "^0.6.0"
-    },
-    "plugins": [
-      "@oclif/plugin-autocomplete",
-      "@oclif/plugin-help",
-      "@oclif/plugin-not-found",
-      "@oclif/plugin-plugins",
-      "@oclif/plugin-warn-if-update-available"
-    ],
-    "warn-if-update-available": {
-      "timeoutInDays": 1,
-      "message": "<%= chalk.dim('beeper-cli') %> <%= chalk.cyan(config.version) %> → <%= chalk.green(latest) %>. Run <%= chalk.bold('beeper update') %> to upgrade.",
-      "registry": "https://registry.npmjs.org",
-      "frequency": 6,
-      "frequencyUnit": "hours"
-    },
-    "topicSeparator": " ",
-    "topics": {
-      "api": {
-        "description": "Call raw Desktop API endpoints"
-      },
-      "accounts": {
-        "description": "Manage connected chat-network accounts"
-      },
-      "auth": {
-        "description": "Inspect and clear stored authentication"
-      },
-      "bridges": {
-        "description": "List bridges that can connect or reconnect chat accounts"
-      },
-      "chats": {
-        "description": "List, search, manage, and modify chats"
-      },
-      "config": {
-        "description": "Manage local CLI configuration"
-      },
-      "contacts": {
-        "description": "List, search, and inspect contacts"
-      },
-      "media": {
-        "description": "Download message media"
-      },
-      "messages": {
-        "description": "List, search, show, edit, delete, and export messages"
-      },
-      "resolve": {
-        "description": "Resolve selectors into concrete candidates"
-      },
-      "send": {
-        "description": "Send text, files, and reactions"
-      },
-      "setup": {
-        "description": "Make a Beeper target ready"
-      },
-      "targets": {
-        "description": "Manage local Desktop, managed Server, and remote Beeper targets"
-      },
-      "verify": {
-        "description": "Finish setup verification or verify another device"
-      },
-      "install": {
-        "description": "Install Beeper Desktop or Beeper Server"
-      }
-    }
   },
   "dependencies": {
     "@beeper/desktop-api": "github:beeper/desktop-api-js#next",
-    "@oclif/core": "^4.11.2",
-    "@oclif/plugin-autocomplete": "^3.2.49",
-    "@oclif/plugin-help": "^6.2.48",
-    "@oclif/plugin-not-found": "^3.2.85",
-    "@oclif/plugin-plugins": "^5.4.67",
-    "@oclif/plugin-warn-if-update-available": "^3.1.49",
-    "figures": "^6.1.0",
-    "ink": "^7.0.3",
-    "ink-spinner": "^5.0.0",
     "qrcode": "1.5.4",
-    "react": "^19.2.6",
-    "ws": "^8.20.1"
+    "ws": "^8.20.1",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/bun": "^1.3.3",
     "@types/node": "^20.0.0",
-    "@types/react": "^19.2.14",
+    "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.1",
     "typescript": "^5.7.2"
   }

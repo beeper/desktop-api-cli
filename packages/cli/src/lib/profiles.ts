@@ -1,17 +1,17 @@
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { beeperDir, pathExists, type Target } from './targets.js'
-import { readInstallations } from './installations.js'
-import { usageError } from './errors.js'
+import { beeperDir, type Target } from './targets.js'
+import { readInstallations, type Installations } from './installations.js'
 
 const execFileAsync = promisify(execFile)
 
-export type ProfileRun = {
+type ProfileRun = {
   id: string
   pid: number
   startedAt: string
@@ -19,23 +19,17 @@ export type ProfileRun = {
   errorLog: string
 }
 
-export const profileRunDir = () => join(beeperDir(), 'run', 'profiles')
-export const profileLogDir = () => join(beeperDir(), 'logs', 'profiles')
-export const profileRunPath = (id: string) => join(profileRunDir(), `${id}.json`)
+const profileRunDir = () => join(beeperDir(), 'run', 'profiles')
+const profileLogDir = () => join(beeperDir(), 'logs', 'profiles')
+const profileRunPath = (id: string) => join(profileRunDir(), `${id}.json`)
 export const profileLogPath = (id: string) => join(profileLogDir(), `${id}.log`)
 export const profileErrorLogPath = (id: string) => join(profileLogDir(), `${id}.err.log`)
 
-export function assertProfile(target: Target): void {
-  if (!target.managed || !target.dataDir) throw new Error(`Target "${target.id}" is not a local profile.`)
+function assertProfile(target: Target): void {
+  if (!target.dataDir) throw new Error(`Target "${target.id}" is not a local profile.`)
 }
 
-export function assertServerProfile(target: Target): void {
-  if (!target.managed || !target.dataDir || target.type !== 'server') {
-    throw usageError(`Target "${target.id}" is not a local Beeper Server install.`)
-  }
-}
-
-export function defaultDesktopDataDir(profile?: string): string {
+function defaultDesktopDataDir(profile?: string): string {
   const appName = `BeeperTexts${profile ? `-${profile}` : ''}`
   if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', appName)
   if (process.platform === 'win32') return process.env.APPDATA ? join(process.env.APPDATA, appName) : join(homedir(), appName)
@@ -48,13 +42,12 @@ export function desktopLogDir(target?: Target): string {
 
 export async function startProfile(target: Target): Promise<ProfileRun | { id: string; startedAt: string }> {
   assertProfile(target)
-  if (target.type === 'desktop') return startDesktopProfile(target)
+  if (target.type === 'desktop') return launchDesktopApp(target)
   return startServerProfile(target)
 }
 
 export async function launchDesktopApp(target?: Target): Promise<{ id: string; startedAt: string }> {
-  const installations = await readInstallations().catch(() => ({ desktop: undefined }))
-  const appPath = installations.desktop?.path ?? await findDesktopAppPath()
+  const appPath = await findDesktopAppPath()
   const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
   args.push('--no-enforce-app-location')
   if (target?.port) args.push(`--pas-port=${target.port}`)
@@ -71,8 +64,8 @@ export async function launchDesktopApp(target?: Target): Promise<{ id: string; s
   return { id: target?.id ?? 'desktop', startedAt: new Date().toISOString() }
 }
 
-export async function findDesktopAppPath(): Promise<string | undefined> {
-  const installations = await readInstallations().catch(() => ({ desktop: undefined }))
+export async function findDesktopAppPath(installations?: Installations): Promise<string | undefined> {
+  installations ??= await readInstallations().catch(() => ({}))
   if (installations.desktop?.path && await isBeeperDesktopApp(installations.desktop.path)) return installations.desktop.path
 
   if (process.platform === 'darwin') {
@@ -91,13 +84,13 @@ export async function findDesktopAppPath(): Promise<string | undefined> {
       join(localAppData, 'Programs', 'Beeper Nightly', 'Beeper Nightly.exe'),
     ]
     for (const path of candidates) {
-      if (await pathExists(path)) return path
+      if (await access(path).then(() => true, () => false)) return path
     }
   }
 
   if (process.platform === 'linux') {
     for (const path of ['/usr/bin/beeper', '/usr/local/bin/beeper']) {
-      if (await pathExists(path)) return path
+      if (await access(path).then(() => true, () => false)) return path
     }
   }
 
@@ -105,7 +98,7 @@ export async function findDesktopAppPath(): Promise<string | undefined> {
 }
 
 async function isBeeperDesktopApp(path: string): Promise<boolean> {
-  if (!await pathExists(path)) return false
+  if (!await access(path).then(() => true, () => false)) return false
   if (process.platform !== 'darwin') return true
   const bundleID = await readBundleID(path)
   return bundleID === 'com.automattic.beeper.desktop' || bundleID === 'com.automattic.beeper.desktop.nightly'
@@ -145,61 +138,13 @@ export async function stopProfile(target: Target): Promise<void> {
   await rm(profileRunPath(target.id), { force: true })
 }
 
-export async function profileStatus(target: Target): Promise<Record<string, unknown>> {
-  assertProfile(target)
-  const run = await readRun(target.id)
-  const reachable = await isReachable(target)
-  return {
-    id: target.id,
-    type: target.type,
-    url: target.baseURL,
-    running: reachable || !!run && isRunning(run.pid),
-    pid: run?.pid,
-    startedAt: run?.startedAt,
-    log: run?.log,
-    errorLog: run?.errorLog,
-  }
-}
-
-export async function enableProfile(target: Target): Promise<string> {
-  assertProfile(target)
-  if (target.type !== 'server') throw new Error('Manage Desktop start at launch in Beeper Desktop.')
-  if (process.platform === 'darwin') return enableLaunchAgent(target)
-  if (process.platform === 'linux') return enableSystemdUnit(target)
-  throw new Error('Beeper Server is not available on Windows.')
-}
-
-export async function disableProfile(target: Target): Promise<string> {
-  assertProfile(target)
-  if (target.type !== 'server') throw new Error('Manage Desktop start at launch in Beeper Desktop.')
-  if (process.platform === 'darwin') {
-    const path = join(process.env.HOME ?? beeperDir(), 'Library', 'LaunchAgents', launchAgentName(target))
-    await execFileAsync('launchctl', ['bootout', `gui/${process.getuid?.() ?? 501}`, path]).catch(() => undefined)
-    await execFileAsync('launchctl', ['disable', `gui/${process.getuid?.() ?? 501}/${launchAgentLabel(target)}`]).catch(() => undefined)
-    await rm(path, { force: true })
-    return path
-  }
-  if (process.platform === 'linux') {
-    const path = join(process.env.HOME ?? beeperDir(), '.config', 'systemd', 'user', systemdUnitName(target))
-    await execFileAsync('systemctl', ['--user', 'disable', '--now', systemdUnitName(target)]).catch(() => undefined)
-    await execFileAsync('systemctl', ['--user', 'daemon-reload']).catch(() => undefined)
-    await rm(path, { force: true })
-    return path
-  }
-  throw new Error('Beeper Server is not available on Windows.')
-}
-
-export async function readRun(id: string): Promise<ProfileRun | undefined> {
+async function readRun(id: string): Promise<ProfileRun | undefined> {
   try {
     return JSON.parse(await readFile(profileRunPath(id), 'utf8')) as ProfileRun
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
-}
-
-async function startDesktopProfile(target: Target): Promise<{ id: string; startedAt: string }> {
-  return launchDesktopApp(target)
 }
 
 async function startServerProfile(target: Target): Promise<ProfileRun> {
@@ -260,98 +205,6 @@ function isRunning(pid: number): boolean {
   }
 }
 
-async function writeLaunchAgent(target: Target): Promise<string> {
-  const installations = await readInstallations()
-  const binary = process.env.BEEPER_SERVER_BIN || installations.server?.path
-  if (!binary) throw new Error('Beeper Server is not installed. Run: beeper install server')
-  const dir = join(process.env.HOME ?? beeperDir(), 'Library', 'LaunchAgents')
-  await mkdir(dir, { recursive: true })
-  const path = join(dir, launchAgentName(target))
-  await writeFile(path, launchAgentPlist(target, binary), 'utf8')
-  return path
-}
-
-async function enableLaunchAgent(target: Target): Promise<string> {
-  const path = await writeLaunchAgent(target)
-  await mkdir(profileLogDir(), { recursive: true })
-  const service = `gui/${process.getuid?.() ?? 501}`
-  await execFileAsync('launchctl', ['bootout', service, path]).catch(() => undefined)
-  await execFileAsync('launchctl', ['bootstrap', service, path])
-  await execFileAsync('launchctl', ['enable', `${service}/${launchAgentLabel(target)}`])
-  await execFileAsync('launchctl', ['kickstart', '-k', `${service}/${launchAgentLabel(target)}`]).catch(() => undefined)
-  return path
-}
-
-async function enableSystemdUnit(target: Target): Promise<string> {
-  const path = await writeSystemdUnit(target)
-  await mkdir(profileLogDir(), { recursive: true })
-  await execFileAsync('systemctl', ['--user', 'daemon-reload'])
-  await execFileAsync('systemctl', ['--user', 'enable', '--now', systemdUnitName(target)])
-  return path
-}
-
-async function writeSystemdUnit(target: Target): Promise<string> {
-  const installations = await readInstallations()
-  const binary = process.env.BEEPER_SERVER_BIN || installations.server?.path
-  if (!binary) throw new Error('Beeper Server is not installed. Run: beeper install server')
-  const dir = join(process.env.HOME ?? beeperDir(), '.config', 'systemd', 'user')
-  await mkdir(dir, { recursive: true })
-  const path = join(dir, systemdUnitName(target))
-  await writeFile(path, systemdUnit(target, binary), 'utf8')
-  return path
-}
-
-function launchAgentName(target: Target): string {
-  return `${launchAgentLabel(target)}.plist`
-}
-
-function launchAgentLabel(target: Target): string {
-  return `com.beeper.cli.profile.${target.id}`
-}
-
-function systemdUnitName(target: Target): string {
-  return `beeper-profile-${target.id}.service`
-}
-
-function launchAgentPlist(target: Target, binary: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>${escapeXML(launchAgentLabel(target))}</string>
-<key>ProgramArguments</key><array>${[binary, ...serverArgs(target)].map(arg => `<string>${escapeXML(arg)}</string>`).join('')}</array>
-<key>EnvironmentVariables</key><dict><key>BEEPER_SERVER_DATA_DIR</key><string>${escapeXML(target.dataDir!)}</string></dict>
-<key>RunAtLoad</key><true/>
-<key>KeepAlive</key><true/>
-<key>StandardOutPath</key><string>${escapeXML(profileLogPath(target.id))}</string>
-<key>StandardErrorPath</key><string>${escapeXML(profileErrorLogPath(target.id))}</string>
-</dict></plist>
-`
-}
-
-function systemdUnit(target: Target, binary: string): string {
-  return `[Unit]
-Description=Beeper profile ${target.id}
-
-[Service]
-ExecStart=${[binary, ...serverArgs(target)].map(systemdQuote).join(' ')}
-Restart=always
-Environment=BEEPER_SERVER_DATA_DIR=${systemdQuote(target.dataDir!)}
-StandardOutput=append:${profileLogPath(target.id)}
-StandardError=append:${profileErrorLogPath(target.id)}
-
-[Install]
-WantedBy=default.target
-`
-}
-
-function escapeXML(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-function systemdQuote(value: string): string {
-  return value.includes(' ') ? `"${value.replaceAll('"', '\\"')}"` : value
-}
-
 async function isReachable(target: Target): Promise<boolean> {
   return fetch(new URL('/v1/info', target.baseURL), { signal: AbortSignal.timeout(1000) })
     .then(response => response.ok)
@@ -374,8 +227,4 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
     await sleep(100)
   }
   return false
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, ms))
 }

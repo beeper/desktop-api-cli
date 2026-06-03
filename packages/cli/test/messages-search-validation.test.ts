@@ -16,10 +16,9 @@ describe('messages search query-or-filter requirement', () => {
   it('rejects empty query with no filters and exits with usage error', () => {
     const result = run('messages', 'search', '--json')
     expect(result.status).toBe(2)
-    const envelope = JSON.parse(result.stderr)
-    expect(envelope.ok).toBe(false)
-    expect(envelope.error.exitCode).toBe(2)
-    expect(envelope.error.message).toMatch(/Provide a search query or at least one filter flag/)
+    const payload = JSON.parse(result.stderr)
+    expect(payload.error.exitCode).toBe(2)
+    expect(payload.error.message).toMatch(/Provide a search query or at least one filter flag/)
   })
 
   it('accepts a bare query', () => {

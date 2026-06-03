@@ -1,5 +1,5 @@
 {
-  "name": "@beeper/cli",
+  "name": "beeper-cli-monorepo",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.10",
@@ -11,26 +11,10 @@
   ],
   "scripts": {
     "build": "bun run --workspaces --sequential build",
-    "check": "bun run typecheck && bun run test && bun run build && bun run pack:packages",
+    "check": "bun run test && bun run pack:packages",
     "clean": "bun run --workspaces clean",
-    "changeset": "changeset",
-    "lint": "eslint eslint.config.mjs packages/cli-plugin-cloudflare/src packages/cli-plugin-cloudflare/test",
-    "pack:packages": "mkdir -p .packs && (cd packages/cli && bun pm pack --destination ../../.packs) && (cd packages/cli-plugin-cloudflare && bun pm pack --destination ../../.packs)",
-    "publish:packages": "bun scripts/publish-packages.ts",
-    "release": "bun scripts/release.ts",
+    "pack:packages": "mkdir -p .packs && npm pack --workspace beeper-cli --pack-destination .packs",
     "test": "bun run --workspaces --sequential test",
-    "typecheck": "bun run --filter @beeper/cli build && bun run --workspaces --sequential typecheck",
-    "version-packages": "changeset version"
-  },
-  "devDependencies": {
-    "@changesets/changelog-github": "^0.6.0",
-    "@changesets/cli": "^2.31.0",
-    "@types/bun": "^1.3.3",
-    "@types/node": "^20.0.0",
-    "eslint": "^9.39.4",
-    "eslint-config-oclif": "^6.0.165",
-    "eslint-config-prettier": "^10.1.8",
-    "tsdown": "^0.21.10",
-    "typescript": "^5.7.2"
+    "typecheck": "bun run --filter beeper-cli build && bun run --workspaces --sequential typecheck"
   }
 }

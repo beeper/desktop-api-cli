@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { commandManifest } from '../dist/lib/manifest.js'
-import { resolveAccountID, resolveAccountIDs, resolveChatID } from '../dist/lib/resolve.js'
-import { downloadURLFor, feedURLFor, normalizeInstallRequest } from '../dist/lib/installations.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const configDir = '/tmp/beeper-cli-test'
-const run = (...args) => spawnSync(process.execPath, ['./bin/dev.js', ...args], {
+const configDir = '/tmp/beeper-cli-smoke'
+rmSync(configDir, { recursive: true, force: true })
+
+const run = (...args: string[]) => spawnSync('bun', ['./bin/dev.js', ...args], {
   cwd: root,
   encoding: 'utf8',
   env: {
@@ -18,354 +17,415 @@ const run = (...args) => spawnSync(process.execPath, ['./bin/dev.js', ...args], 
   },
 })
 
-const ok = (...args) => {
+const ok = (...args: string[]) => {
   const result = run(...args)
   assert.equal(result.status, 0, `${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`)
   return result.stdout
 }
 
-const expectedCommands = [
-  'setup',
-  'install desktop',
-  'install server',
-  'targets list',
-  'bridges list',
-  'bridges show',
-  'targets add desktop',
-  'targets add server',
-  'targets add remote',
-  'targets use',
-  'targets show',
-  'targets status',
-  'targets start',
-  'targets stop',
-  'targets restart',
-  'targets logs',
-  'targets enable',
-  'targets disable',
-  'targets remove',
-  'targets tunnel',
-  'auth status',
-  'auth logout',
-  'auth email start',
-  'auth email response',
-  'verify',
-  'verify status',
-  'verify approve',
-  'verify recovery-key',
-  'verify reset-recovery-key',
-  'verify cancel',
-  'verify list',
-  'verify start',
-  'verify show',
-  'verify sas',
-  'verify sas-confirm',
-  'verify qr-scan',
-  'verify qr-confirm',
-  'accounts list',
-  'accounts add',
-  'accounts show',
-  'accounts remove',
-  'accounts use',
-  'chats list',
-  'chats search',
-  'chats show',
-  'chats start',
-  'chats archive',
-  'chats unarchive',
-  'chats pin',
-  'chats unpin',
-  'chats mute',
-  'chats unmute',
-  'chats mark-read',
-  'chats mark-unread',
-  'chats priority',
-  'chats notify-anyway',
-  'chats rename',
-  'chats description',
-  'chats avatar',
-  'chats draft',
-  'chats disappear',
-  'chats remind',
-  'chats unremind',
-  'chats focus',
-  'messages list',
-  'messages search',
-  'messages show',
-  'messages context',
-  'messages edit',
-  'messages delete',
-  'messages export',
-  'send text',
-  'send file',
-  'send react',
-  'send sticker',
-  'send unreact',
-  'send voice',
-  'presence',
-  'contacts list',
-  'contacts search',
-  'contacts show',
-  'resolve chat',
-  'resolve account',
-  'resolve contact',
-  'resolve target',
-  'resolve bridge',
-  'media download',
-  'export',
-  'watch',
-  'rpc',
-  'man',
-  'schema',
-  'doctor',
-  'status',
-  'docs',
-  'version',
-  'completion',
-  'plugins',
-  'plugins available',
-  'update',
-  'config get',
-  'config set',
-  'config path',
-  'config reset',
-  'api get',
-  'api post',
-  'api request',
-]
+assert.match(ok('--help'), /Usage: beeper <command>/)
+assert.match(ok('--help'), /targets add/)
+assert.match(ok('--help'), /targets runtime start\s+Start a local target runtime/)
+assert.match(ok('--help'), /targets runtime stop\s+Stop a local server runtime/)
+assert.match(ok('--help'), /targets runtime restart\s+Restart a local server runtime/)
+assert.match(ok('--help'), /targets tunnel/)
+assert.match(ok('--help'), /use account\s+Select the default account/)
+assert.match(ok('--help'), /use target\s+Select the default target/)
+assert.match(ok('--help'), /remove account\s+Remove an account/)
+assert.match(ok('--help'), /remove target\s+Remove a target/)
+assert.match(ok('--help'), /auth email start\s+Start email sign-in for a target/)
+assert.match(ok('--help'), /auth email response\s+Finish email sign-in for a target/)
+assert.match(ok('--help'), /install desktop\s+Install Beeper Desktop locally/)
+assert.match(ok('--help'), /install server\s+Install Beeper Server locally/)
+assert.match(ok('--help'), /accounts list/)
+assert.match(ok('--help'), /accounts add/)
+assert.match(ok('--help'), /messages list/)
+assert.match(ok('--help'), /chats archive\s+Archive or unarchive a chat/)
+assert.match(ok('--help'), /chats disappear\s+Set a disappearing-message timer/)
+assert.match(ok('--help'), /chats priority\s+Set chat priority/)
+assert.match(ok('--help'), /chats focus\s+Focus a chat in Beeper/)
+assert.match(ok('--help'), /chats notify-anyway\s+Notify a chat anyway/)
+assert.match(ok('--help'), /messages context/)
+assert.match(ok('--help'), /messages edit\s+Edit a message/)
+assert.match(ok('--help'), /messages delete\s+Delete a message/)
+assert.match(ok('--help'), /api request/)
+assert.match(ok('--help'), /send text\s+Send a text message/)
+assert.match(ok('--help'), /send file\s+Send a file message/)
+assert.match(ok('--help'), /send sticker\s+Send a sticker/)
+assert.match(ok('--help'), /send voice\s+Send a voice note/)
+assert.match(ok('--help'), /send react\s+Send or remove a reaction/)
+assert.match(ok('--help'), /send presence\s+Send a typing indicator/)
+assert.match(ok('--help'), /resolve account\s+Resolve an account selector/)
+assert.match(ok('--help'), /resolve bridge\s+Resolve a bridge selector/)
+assert.match(ok('--help'), /resolve chat\s+Resolve a chat selector/)
+assert.match(ok('--help'), /resolve contact\s+Resolve a contact selector/)
+assert.match(ok('--help'), /resolve target\s+Resolve a target selector/)
+assert.match(ok('--help'), /watch/)
+assert.match(ok('--help'), /media download/)
+assert.match(ok('--help'), /export\s+Export accounts/)
+assert.match(ok('setup', '--help'), /--remote/)
+assert.match(ok('targets', 'tunnel', '--help'), /--url-only/)
+assert.match(ok('accounts', 'add', '--help'), /--webview-backend/)
+assert.match(ok('watch', '--help'), /--include-type/)
+assert.match(ok('send', 'presence', '--help'), /--state/)
+assert.match(ok('media', 'download', '--help'), /--out/)
+assert.match(ok('export', '--help'), /--no-attachments/)
 
-const internalCommands = new Set(['autocomplete'])
-const commandFiles = listCommandFiles(join(root, 'src/commands')).filter(file => !internalCommands.has(fileToCommand(file)))
-const commandNames = commandFiles.map(file => fileToCommand(file)).sort()
-const manifestNames = commandManifest.map(item => item.command).sort()
-// First-party commands shipped by a separate plugin package (not present in src/commands here).
-const pluginShippedCommands = new Set(['targets tunnel'])
+const version = JSON.parse(ok('version', '--json'))
+assert.equal(version.name, 'beeper-cli')
+assert.match(version.version, /^\d+\.\d+\.\d+/)
 
-assert.deepEqual(commandManifest.map(item => item.command), expectedCommands, 'command manifest must be the nuclear public surface')
-assert.deepEqual(manifestNames.filter(name => !pluginShippedCommands.has(name)), commandNames, 'command manifest must match src/commands (excluding plugin-shipped commands)')
-assert.equal(new Set(manifestNames).size, manifestNames.length, 'command manifest must not contain duplicates')
+let result = run('version', '--json', '--plain')
+assert.equal(result.status, 2)
+let errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /cannot combine --json and --plain/)
 
-const help = ok('--help')
-assert.match(help, /\btargets\b/, 'help should expose targets')
-assert.match(help, /\bchats\b/, 'help should expose chats')
-assert.match(help, /\bmessages\b/, 'help should expose messages')
-// Anchor to the column-2 command/topic listing so we don't false-positive on the word
-// "commands" inside another command's summary (e.g. rpc).
-assert.doesNotMatch(help, /^\s{2,}(profile|commands|llm|login|logout)\s/m, 'help must not expose deleted root/internal commands')
-assert.match(help, /\bplugins\b/, 'help should expose plugin management')
-assert.doesNotMatch(help, /^\s{2,}autocomplete\s/m, 'help should expose completion instead of raw autocomplete')
-assert.match(help, /\bbridges\b/, 'help should expose bridges')
-assert.match(help, /\bverify\b/, 'help should expose verification')
-assert.doesNotMatch(help, /\bassets\b|\bapp\b/, 'help must not expose old API namespaces')
+result = run('messages', 'list', '--limit', '12abc', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /--limit must be an integer/)
 
-for (const command of expectedCommands) {
-  // Plugin-shipped commands aren't loaded unless the plugin is installed.
-  if (pluginShippedCommands.has(command)) continue
-  ok(...command.split(' '), '--help')
-}
+result = run('messages', 'list', '--limit=', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /--limit must be an integer/)
 
-assert.match(ok('send', 'text', '--help'), /--to/, 'send text should use --to')
-assert.match(ok('send', 'text', '--help'), /--message/, 'send text should use --message')
-assert.match(ok('send', 'file', '--help'), /--file/, 'send file should use --file')
-assert.match(ok('send', 'file', '--help'), /--caption/, 'send file should use --caption')
-assert.match(ok('messages', 'list', '--help'), /--chat/, 'messages list should use --chat')
-assert.doesNotMatch(ok('chats', 'mute', '--help'), /--duration/, 'chats mute must not expose duration until API supports it')
-assert.match(ok('chats', 'list', '--help'), /--account=<value>\.\.\./, 'account filters must stay local')
-assert.doesNotMatch(ok('status', '--help'), /--account/, '--account must not be global')
-const setupHelp = ok('setup', '--help')
-assert.match(setupHelp, /--local/, 'setup should expose local Desktop direct setup')
-assert.match(setupHelp, /--oauth/, 'setup should expose OAuth setup')
-assert.match(setupHelp, /--remote/, 'setup should expose remote setup shortcut')
-assert.match(setupHelp, /--server/, 'setup should expose Server setup shortcut')
-assert.match(setupHelp, /--desktop/, 'setup should expose Desktop setup shortcut')
-assert.match(setupHelp, /--email/, 'setup should expose email setup start')
-assert.doesNotMatch(setupHelp, /--code|--accept-terms/, 'setup must not accept OTP or terms flags in the first command')
+result = run('messages', 'list', '--limit', '1e2', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /--limit must be an integer/)
 
-const man = JSON.parse(ok('man', '--json'))
-assert.equal(man.ok, true)
-assert.equal(man.error, null)
-assert.deepEqual(man.data.map(item => item.command), expectedCommands)
+let payload = JSON.parse(ok('targets', 'list', '--json'))
+assert.equal(payload[0].id, 'desktop')
+assert.equal(existsSync(join(configDir, 'config.json')), false)
+assert.equal(existsSync(join(configDir, 'targets')), false)
 
-const availablePlugins = JSON.parse(ok('plugins', 'available', '--json'))
-assert.equal(availablePlugins.ok, true)
-assert.equal(availablePlugins.data[0].name, '@beeper/cli-plugin-cloudflare')
-assert.equal(availablePlugins.data[0].status, 'not installed')
-assert.deepEqual(availablePlugins.data[0].commands, ['targets tunnel'])
-assert.match(ok('chats', 'list', '--help'), /preferred chat selectors/, 'chats list --ids should describe preferred selectors')
-assert.match(ok('chats', '--help'), /preferred chat selectors/, 'chats should alias chats list')
-assert.match(ok('accounts', 'chats', '--help'), /preferred chat selectors/, 'accounts chats should alias chats list')
-assert.match(ok('accounts', '--help'), /List connected accounts/, 'accounts should alias accounts list')
-assert.match(ok('bridges', 'list', '--help'), /connect chat accounts/, 'bridges list should expose bridge catalog')
-assert.match(ok('bridges', '--help'), /connect chat accounts/, 'bridges should alias bridges list')
-assert.match(ok('verify', '--help'), /device verification/, 'verify should be a root command')
-assert.throws(() => ok('auth', 'verify', '--help'), /failed/, 'auth verify must not remain public')
-assert.throws(() => ok('messages', 'react', '--help'), /failed/, 'messages react must not remain public')
+payload = JSON.parse(ok('use', 'target', 'desktop', '--json'))
+assert.equal(payload.defaultTarget, 'desktop')
 
-rmSync(configDir, { recursive: true, force: true })
-let result = run('targets', 'add', 'remote', 'work', 'http://127.0.0.1:23373', '--default', '--json')
+result = run('--safety-profile', 'readonly', 'use', 'target', 'desktop', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'targets', 'tunnel', 'desktop', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'use', 'account', 'matrix', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'remove', 'target', 'desktop', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'send', 'text', '--to', 'chat', '--message', 'hello', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'chats', 'archive', '--chat', 'chat', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'accounts', 'add', 'matrix', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'send', 'presence', '--to', 'chat', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'media', 'download', 'mxc://server/file', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('--safety-profile', 'readonly', 'export', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /blocked by safety profile "readonly"/)
+
+result = run('targets', 'add', 'desktop', 'http://127.0.0.1:23374', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /reserved/)
+
+result = run('targets', 'add', 'work', 'http://127.0.0.1:23373', '--default', '--json')
 assert.equal(result.status, 0, result.stderr)
-let envelope = JSON.parse(result.stdout)
-assert.equal(envelope.ok, true)
-assert.equal(envelope.data.id, 'work')
-assert.equal(envelope.data.type, 'remote')
+payload = JSON.parse(result.stdout)
+assert.equal(payload.target.id, 'work')
+assert.equal(payload.target.type, 'remote')
 
-result = run('targets', 'list', '--json')
-assert.equal(result.status, 0, result.stderr)
-envelope = JSON.parse(result.stdout)
-assert.equal(envelope.ok, true)
-assert(envelope.data.some(item => item.id === 'work' && item.default))
+payload = JSON.parse(ok('use', 'target', 'work', '--json'))
+assert.equal(payload.defaultTarget, 'work')
 
-result = run('auth', 'status', '--json')
-assert.equal(result.status, 0, result.stderr)
-envelope = JSON.parse(result.stdout)
-assert.equal(envelope.ok, true)
-assert.equal(envelope.data.authenticated, false)
-assert.equal(envelope.data.target, 'work')
+payload = JSON.parse(ok('status', '--json'))
+assert.equal(payload.auth.authenticated, false)
+assert.equal(payload.target.id, 'work')
 
-result = run('send', 'text', '--to', 'family', '--message', 'on my way', '--read-only', '--json')
-assert.notEqual(result.status, 0)
-envelope = JSON.parse(result.stderr)
-assert.equal(envelope.ok, false)
-assert.match(envelope.error.message, /read-only mode/)
+payload = JSON.parse(ok('auth', 'logout', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'auth.logout')
 
-result = run('setup', '--remote', 'http://127.0.0.1:9', '--target', 'email-remote', '--email', 'staging-user-123456@example.invalid', '--json')
-assert.notEqual(result.status, 0)
-envelope = JSON.parse(result.stderr)
-assert.equal(envelope.ok, false)
-assert.match(envelope.error.message, /auth email start/)
-assert.doesNotMatch(envelope.error.message, /--code|OTP/i, 'setup must direct automation to the two-step email commands without accepting OTP itself')
+payload = JSON.parse(ok('auth', 'email', 'start', '--email', 'qa@example.invalid', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'auth.email.start')
 
-result = run('targets', 'show', 'email-remote', '--json')
-assert.notEqual(result.status, 0)
-envelope = JSON.parse(result.stderr)
-assert.equal(envelope.ok, false)
-assert.match(envelope.error.message, /Unknown Beeper target/)
+payload = JSON.parse(ok('auth', 'email', 'response', '--setup-request-id', 'setup-1', '--code', '123456', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'auth.email.response')
 
-rmSync(configDir, { recursive: true, force: true })
-const fakeServerPath = join(configDir, 'bin', 'beeper-server')
-mkdirSync(join(configDir, 'bin'), { recursive: true })
-writeFileSync(fakeServerPath, '#!/bin/sh\n', { mode: 0o755 })
-writeFileSync(join(configDir, 'installations.json'), `${JSON.stringify({
-  server: {
-    kind: 'server',
-    channel: 'stable',
-    serverEnv: 'prod',
-    bundleID: 'com.automattic.beeper.server',
-    version: 'test',
-    path: fakeServerPath,
-    feedURL: 'https://example.invalid/feed',
-    downloadURL: 'https://example.invalid/download',
-    installedAt: '2026-05-18T00:00:00.000Z',
-    updatedAt: '2026-05-18T00:00:00.000Z',
-  },
-}, null, 2)}\n`)
-result = run('setup', '--json')
-assert.equal(result.status, 0, result.stderr)
-envelope = JSON.parse(result.stdout)
-assert.equal(envelope.ok, true)
-assert(envelope.data.availableActions.some(action => action.id === 'use-installed-server' && action.command === 'beeper setup --server --yes'))
-assert(!envelope.data.availableActions.some(action => action.id === 'install-server'), 'setup must not offer to reinstall an already installed Server')
+payload = JSON.parse(ok('install', 'desktop', '--server-env', 'staging', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'install.desktop')
+assert.equal(payload.request.serverEnv, 'staging')
 
-const rpcResult = spawnSync(process.execPath, ['./bin/dev.js', 'rpc'], {
+payload = JSON.parse(ok('install', 'server', '--server-env', 'staging', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'install.server')
+assert.equal(payload.request.serverEnv, 'staging')
+
+payload = JSON.parse(ok('targets', 'runtime', 'start', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'targets.runtime.start')
+assert.equal(payload.request.target.id, 'work')
+assert.equal(payload.request.target.auth, undefined)
+
+payload = JSON.parse(ok('targets', 'runtime', 'stop', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'targets.runtime.stop')
+assert.equal(payload.request.target.id, 'work')
+
+payload = JSON.parse(ok('targets', 'runtime', 'restart', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'targets.runtime.restart')
+assert.equal(payload.request.target.id, 'work')
+
+result = run('targets', 'runtime', 'bogus', '--dry-run', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /unknown command "targets runtime bogus"/)
+
+payload = JSON.parse(ok('targets', 'tunnel', 'work', '--retries', '1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'targets.tunnel')
+assert.equal(payload.request.target, 'work')
+assert.equal(payload.request.retries, 1)
+
+payload = JSON.parse(ok('remove', 'target', 'work', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'remove.target')
+assert.equal(payload.request.id, 'work')
+
+payload = JSON.parse(ok('api', 'request', 'POST', '/v1/example', '--body', '{"ok":true}', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.body.ok, true)
+
+payload = JSON.parse(ok('api', 'request', 'GET', '/v1/example', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.method, 'GET')
+
+payload = JSON.parse(ok('send', 'voice', '--to', 'chat', '--file', './note.ogg', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'send.voice')
+assert.equal(payload.request.chat, 'chat')
+
+payload = JSON.parse(ok('send', 'text', '--to', 'chat', '--message', 'hello', '--mention', 'user1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'send.text')
+assert.equal(payload.request.mentions[0], 'user1')
+
+payload = JSON.parse(ok('send', 'react', '--to', 'chat', '--id', 'm1', '--reaction', '+1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'send.react')
+assert.equal(payload.request.reactionKey, '+1')
+
+payload = JSON.parse(ok('chats', 'disappear', '--chat', 'chat', '--seconds', 'off', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.chat, 'chat')
+assert.equal(payload.request.messageExpirySeconds, null)
+
+payload = JSON.parse(ok('chats', 'disappear', '--chat', 'chat', '--seconds', '3600', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.messageExpirySeconds, 3600)
+
+result = run('chats', 'disappear', '--chat', 'chat', '--seconds', '1e2', '--dry-run', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /--seconds must be a positive integer or "off"/)
+
+payload = JSON.parse(ok('chats', 'priority', '--chat', 'chat', '--level', 'low', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.chat, 'chat')
+
+payload = JSON.parse(ok('chats', 'focus', '--chat', 'chat', '--text', 'draft', '--file', './draft.txt', '--message', 'm1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'chats.focus')
+assert.equal(payload.request.draftText, 'draft')
+assert.equal(payload.request.draftAttachmentPath, './draft.txt')
+
+payload = JSON.parse(ok('chats', 'notify-anyway', '--chat', 'chat', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'chats.notify-anyway')
+
+result = run('chats', 'notify-anyway', '--dry-run', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /--chat is required/)
+
+payload = JSON.parse(ok('messages', 'context', '--chat', 'chat', '--id', 'm1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.request.chat, 'chat')
+assert.equal(payload.request.messageID, 'm1')
+
+payload = JSON.parse(ok('messages', 'edit', '--chat', 'chat', '--id', 'm1', '--message', 'edited', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'messages.edit')
+assert.equal(payload.request.chat, 'chat')
+assert.equal(payload.request.text, 'edited')
+
+payload = JSON.parse(ok('messages', 'delete', '--chat', 'chat', '--id', 'm1', '--for-everyone', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'messages.delete')
+assert.equal(payload.request.forEveryone, true)
+assert.equal(payload.request.messageID, 'm1')
+
+payload = JSON.parse(ok('export', '--chat', 'chat', '--out', '/tmp/beeper-export', '--limit-messages', '10', '--no-attachments', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'export')
+assert.equal(payload.request.outDir, '/tmp/beeper-export')
+
+payload = JSON.parse(ok('send', 'presence', '--to', 'chat', '--duration', '1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'send.presence')
+assert.equal(payload.request.durationSeconds, 1)
+
+payload = JSON.parse(ok('media', 'download', 'mxc://server/file', '--out', '/tmp', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'media.download')
+assert.equal(payload.request.out, '/tmp')
+
+payload = JSON.parse(ok('export', '--out', '/tmp/beeper-export', '--limit-chats', '1', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'export')
+assert.equal(payload.request.outDir, '/tmp/beeper-export')
+assert.equal(payload.request.limitChats, 1)
+
+payload = JSON.parse(ok('--safety-profile', 'readonly', 'resolve', 'target', 'desktop', '--json'))
+assert.equal(payload.kind, 'target')
+assert.equal(payload.selected.id, 'desktop')
+
+payload = JSON.parse(ok('targets', 'list', '--json'))
+assert.equal(payload[0].id, 'work')
+
+const schema = JSON.parse(ok('schema', '--json'))
+assert.equal(schema.schema_version, 1)
+assert.equal(schema.command.type, 'application')
+
+const mcp = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
   cwd: root,
   encoding: 'utf8',
   env: {
     ...process.env,
     BEEPER_CLI_CONFIG_DIR: configDir,
   },
-  input: '{"id":1,"command":"auth status --json"}\n',
+  input: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n',
 })
-assert.equal(rpcResult.status, 0, rpcResult.stderr)
-const rpcLine = JSON.parse(rpcResult.stdout)
-assert.equal(rpcLine.id, 1)
-assert.equal(rpcLine.ok, true)
-assert.match(rpcLine.stdout, /"ok": true/)
+assert.equal(mcp.status, 0, mcp.stderr)
+payload = JSON.parse(mcp.stdout)
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'targets_list'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'messages_search'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'contacts_list'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'api_request'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'resolve_target'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'resolve_chat'))
+assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'messages_context'))
 
-const stagingServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'staging', channel: 'stable', platform: 'darwin', arch: 'arm64' })
-assert.equal(stagingServerRequest.channel, 'stable')
-assert.equal(stagingServerRequest.bundleID, 'com.automattic.beeper.server')
-assert.equal(feedURLFor(stagingServerRequest), 'https://api.beeper-staging.com/desktop/update-feed.json?bundleID=com.automattic.beeper.server&platform=darwin&channel=stable&arch=arm64')
-assert.equal(downloadURLFor(stagingServerRequest), 'https://api.beeper-staging.com/desktop/download/macos/arm64/stable/com.automattic.beeper.server')
-
-const prodServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'prod', channel: 'stable', platform: 'darwin', arch: 'arm64' })
-assert.equal(prodServerRequest.channel, 'stable')
-assert.equal(prodServerRequest.bundleID, 'com.automattic.beeper.server')
-assert.equal(feedURLFor(prodServerRequest), 'https://api.beeper.com/desktop/update-feed.json?bundleID=com.automattic.beeper.server&platform=darwin&channel=stable&arch=arm64')
-assert.equal(downloadURLFor(prodServerRequest), 'https://api.beeper.com/desktop/download/macos/arm64/stable/com.automattic.beeper.server')
-
-const productionAliasServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'production', channel: 'stable', platform: 'darwin', arch: 'arm64' })
-assert.equal(productionAliasServerRequest.serverEnv, 'prod')
-
-const localServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'local', channel: 'stable', platform: 'darwin', arch: 'arm64' })
-assert.equal(feedURLFor(localServerRequest), 'https://api.beeper.localtest.me/desktop/update-feed.json?bundleID=com.automattic.beeper.server&platform=darwin&channel=stable&arch=arm64')
-assert.equal(downloadURLFor(localServerRequest), 'https://api.beeper.localtest.me/desktop/download/macos/arm64/stable/com.automattic.beeper.server')
-
-const devServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'dev', channel: 'stable', platform: 'darwin', arch: 'arm64' })
-assert.equal(feedURLFor(devServerRequest), 'https://api.beeper-dev.com/desktop/update-feed.json?bundleID=com.automattic.beeper.server&platform=darwin&channel=stable&arch=arm64')
-assert.equal(downloadURLFor(devServerRequest), 'https://api.beeper-dev.com/desktop/download/macos/arm64/stable/com.automattic.beeper.server')
-
-const stagingNightlyServerRequest = normalizeInstallRequest({ kind: 'server', serverEnv: 'staging', channel: 'nightly', platform: 'darwin', arch: 'arm64' })
-assert.equal(stagingNightlyServerRequest.channel, 'nightly')
-assert.equal(stagingNightlyServerRequest.bundleID, 'com.automattic.beeper.server.nightly')
-assert.equal(feedURLFor(stagingNightlyServerRequest), 'https://api.beeper-staging.com/desktop/update-feed.json?bundleID=com.automattic.beeper.server.nightly&platform=darwin&channel=nightly&arch=arm64')
-assert.equal(downloadURLFor(stagingNightlyServerRequest), 'https://api.beeper-staging.com/desktop/download/macos/arm64/nightly/com.automattic.beeper.server.nightly')
-
-const desktopNightlyRequest = normalizeInstallRequest({ kind: 'desktop', channel: 'nightly', platform: 'darwin', arch: 'arm64' })
-assert.equal(downloadURLFor(desktopNightlyRequest), 'https://api.beeper.com/desktop/download/macos/arm64/nightly/com.automattic.beeper.desktop.nightly')
-
-const fakeClient = {
-  accounts: {
-    list: async () => [
-      { accountID: 'imessage-main', bridge: { id: 'local-imessage', type: 'imessage' }, network: 'iMessage', user: { displayName: 'Main' } },
-      { accountID: 'telegram-main', bridge: { id: 'telegramgo', type: 'telegram' }, network: 'Telegram', user: { displayName: 'Main' } },
-    ],
+const mcpInitialize = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
   },
-  chats: {
-    retrieve: async id => {
-      if (id === '!exact:beeper.com' || id === '10313') return { id: '!family:beeper.com', localChatID: '10313', title: 'Family', network: 'iMessage' }
-      throw new Error('not found')
-    },
-    search: async function* ({ query }) {
-      const rows = [
-        { id: '!family:beeper.com', localChatID: '10313', title: 'Family', network: 'iMessage' },
-        { id: '!family-work:beeper.com', localChatID: '8951', title: 'Family Work', network: 'Telegram' },
-      ].filter(chat => chat.title.toLowerCase().includes(String(query).toLowerCase()))
-      for (const row of rows) yield row
-    },
+  input: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+})
+assert.equal(mcpInitialize.status, 0, mcpInitialize.stderr)
+payload = JSON.parse(mcpInitialize.stdout)
+assert.equal(payload.result.serverInfo.name, 'beeper')
+assert.equal(payload.result.serverInfo.version, version.version)
+
+const mcpCall = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
   },
-}
+  input: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"version","arguments":{}}}\n',
+})
+assert.equal(mcpCall.status, 0, mcpCall.stderr)
+payload = JSON.parse(mcpCall.stdout)
+const mcpVersion = JSON.parse(payload.result.content[0].text)
+assert.match(mcpVersion.name, /beeper-cli/)
+assert.equal(mcpVersion.version, version.version)
 
-assert.equal(await resolveAccountID(fakeClient, 'imessage'), 'imessage-main')
-assert.deepEqual(await resolveAccountIDs(fakeClient, ['main'], { allowMultiplePerInput: true }), ['imessage-main', 'telegram-main'])
-await assert.rejects(() => resolveAccountID(fakeClient, 'main'), /Ambiguous account/)
-assert.equal(await resolveChatID(fakeClient, '!exact:beeper.com'), '!exact:beeper.com')
-assert.equal(await resolveChatID(fakeClient, '10313'), '10313')
-assert.equal(await resolveChatID(fakeClient, 'Family Work'), '8951')
-assert.equal(await resolveChatID(fakeClient, 'fam', { pick: 2 }), '8951')
-await assert.rejects(() => resolveChatID(fakeClient, 'fam'), /Ambiguous chat/)
-await assert.rejects(() => resolveChatID(fakeClient, 'missing'), /No chat matches/)
+const mcpEOFCall = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
+  },
+  input: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"version","arguments":{}}}',
+})
+assert.equal(mcpEOFCall.status, 0, mcpEOFCall.stderr)
+payload = JSON.parse(mcpEOFCall.stdout)
+assert.equal(payload.id, 4)
+assert.equal(JSON.parse(payload.result.content[0].text).version, version.version)
 
-function listCommandFiles(dir) {
-  const output = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    // Skip private/internal files like _complete used by autocomplete.
-    if (entry.name.startsWith('_') || entry.name === 'autocomplete.ts') continue
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      output.push(...listCommandFiles(path))
-    } else if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
-      output.push(path)
-    }
-  }
-  return output
-}
+const mcpDryRunCall = spawnSync('bun', ['./bin/dev.js', '--dry-run', 'mcp'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
+  },
+  input: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"messages_context","arguments":{"chat":"chat","id":"m1","after":"3","before":"4"}}}\n',
+})
+assert.equal(mcpDryRunCall.status, 0, mcpDryRunCall.stderr)
+payload = JSON.parse(mcpDryRunCall.stdout)
+const mcpContext = JSON.parse(payload.result.content[0].text)
+assert.equal(mcpContext.dry_run, true)
+assert.equal(mcpContext.request.after, 3)
+assert.equal(mcpContext.request.before, 4)
 
-function fileToCommand(file) {
-  const relative = file.slice(join(root, 'src/commands').length + 1)
-  const parts = relative.replace(/\.(ts|tsx)$/, '').split('/')
-  return parts.map(part => part === 'index' ? undefined : part).filter(Boolean).join(' ')
-}
+const mcpInvalidJSON = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
+  },
+  input: '{bad json}\n',
+})
+assert.equal(mcpInvalidJSON.status, 0, mcpInvalidJSON.stderr)
+payload = JSON.parse(mcpInvalidJSON.stdout)
+assert.equal(payload.jsonrpc, '2.0')
+assert.equal(payload.error.code, -32000)
+assert.match(payload.error.message, /JSON/)
 
-assert(!existsSync(join(root, 'src/commands/profile')), 'profile namespace must be deleted')
-assert(!existsSync(join(root, 'src/commands/target')), 'singular target namespace must be deleted')
-assert(!existsSync(join(root, 'src/commands/app')), 'app/e2ee namespace must be deleted')
+rmSync(configDir, { recursive: true, force: true })

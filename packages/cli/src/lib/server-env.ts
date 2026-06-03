@@ -1,4 +1,4 @@
-export const SERVER_ENVIRONMENTS = ['local', 'dev', 'staging', 'prod'] as const
+const SERVER_ENVIRONMENTS = ['local', 'dev', 'staging', 'prod'] as const
 
 export type ServerEnv = typeof SERVER_ENVIRONMENTS[number]
 

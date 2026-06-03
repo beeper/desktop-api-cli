@@ -1,10 +1,11 @@
 import type { AppSessionResponse } from '@beeper/desktop-api/resources/app'
 import type { QrConfirmScannedResponse, SASConfirmResponse, SASStartResponse, VerificationAcceptResponse, VerificationCreateResponse } from '@beeper/desktop-api/resources/app/verifications'
-import { appRequest, promptYesNo } from './app-api.js'
+import { appRequest } from './app-api.js'
+import { promptConfirm } from './prompts.js'
 
-export type AppState = AppSessionResponse
+type AppState = AppSessionResponse
 
-export type ReadinessState = AppState['state']
+type ReadinessState = AppState['state']
   | 'no-target'
   | 'target-unreachable'
   | 'login-in-progress'
@@ -25,20 +26,19 @@ export type Readiness = {
   message?: string
 }
 
-export function nextAppStep(state: AppState, targetID?: string): string | undefined {
+function nextAppStep(state: AppState, targetID?: string): string | undefined {
   const appState = state.state as ReadinessState
-  const target = targetID && targetID !== 'desktop' ? ` -t ${targetID}` : ''
+  const target = targetID && targetID !== 'desktop' ? ` --target ${targetID}` : ''
   if (appState === 'ready') return undefined
-  if (appState === 'needs-login') return `Run: beeper setup${target}`
-  if (appState === 'needs-verification') return `Run: beeper verify${target}`
-  if (appState === 'needs-secrets' || appState === 'needs-recovery-key') return `Run: beeper verify recovery-key${target}`
-  if (appState === 'needs-cross-signing-setup') return `Run: beeper verify reset-recovery-key${target}`
+  if (appState === 'needs-login' || appState === 'needs-verification' || appState === 'verification-in-progress') return `Run: beeper setup${target}`
+  if (appState === 'needs-secrets' || appState === 'needs-recovery-key') return `Finish recovery in Beeper, then run: beeper setup${target}`
+  if (appState === 'needs-cross-signing-setup') return `Finish cross-signing setup in Beeper, then run: beeper setup${target}`
   return `Waiting for app state: ${appState}`
 }
 
 export async function evaluateReadiness(options: { baseURL?: string; target?: string; token?: string | false } = {}): Promise<Readiness> {
   try {
-    const app = await getAppState(options)
+    const app = await appRequest<AppState>('GET', '/v1/app/setup', options)
     const state = normalizeReadinessState(app)
     return {
       state,
@@ -49,18 +49,14 @@ export async function evaluateReadiness(options: { baseURL?: string; target?: st
   } catch (error) {
     return {
       state: 'target-unreachable',
-      actions: ['targets status', 'targets start', 'doctor'],
+      actions: ['status', 'targets runtime start', 'setup'],
       message: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
-export async function getAppState(options: { baseURL?: string; target?: string; token?: string | false } = {}): Promise<AppState> {
-  return appRequest<AppState>('GET', '/v1/app/setup', options)
-}
-
-export async function driveVerification(options: { baseURL?: string; target?: string; userID?: string; yes?: boolean } = {}): Promise<AppState> {
-  let state = await getAppState(options)
+export async function driveVerification(options: { baseURL?: string; force?: boolean; target?: string; userID?: string } = {}): Promise<AppState> {
+  let state = await appRequest<AppState>('GET', '/v1/app/setup', options)
   if (state.state === 'ready') return state
   if (state.state === 'needs-login') throw new Error('Target is not signed in. Run `beeper setup` after signing in to Beeper Desktop.')
 
@@ -89,9 +85,9 @@ export async function driveVerification(options: { baseURL?: string; target?: st
 
     if (actions.has('sas.confirm') && id) {
       const sas = state.verification?.sas
-      if (!options.yes) {
+      if (!options.force) {
         process.stdout.write(`Verify that this matches on the other device:\n${sas?.emojis ?? sas?.decimals ?? '(no SAS data)'}\n`)
-        if (!await promptYesNo('Do they match?')) throw new Error('Verification cancelled.')
+        if (!await promptConfirm('Do they match?')) throw new Error('Verification cancelled.')
       }
       state = (await appRequest<SASConfirmResponse>('POST', `/v1/app/setup/verifications/${encodeURIComponent(id)}/sas/confirm`, options)).session
       continue
@@ -128,28 +124,9 @@ function normalizeReadinessState(app: AppState): ReadinessState {
 }
 
 function actionsForState(state: ReadinessState): string[] {
-  switch (state) {
-    case 'no-target':
-      return ['targets add desktop', 'targets add remote']
-    case 'target-unreachable':
-      return ['targets status', 'targets start', 'doctor']
-    case 'needs-login':
-    case 'login-in-progress':
-      return ['setup', 'auth status']
-    case 'needs-cross-signing-setup':
-      return ['verify reset-recovery-key']
-    case 'needs-verification':
-    case 'verification-in-progress':
-      return ['verify', 'verify list', 'verify sas', 'verify qr-scan']
-    case 'needs-recovery-key':
-    case 'needs-secrets':
-      return ['verify recovery-key']
-    case 'needs-first-sync':
-    case 'initializing':
-      return ['setup', 'status']
-    case 'ready':
-      return ['chats list', 'messages list', 'send text']
-    case 'error':
-      return ['doctor', 'setup']
-  }
+  if (state === 'ready') return ['chats list', 'messages list', 'send text']
+  if (state === 'no-target') return ['setup', 'targets add']
+  if (state === 'target-unreachable') return ['status', 'targets runtime start', 'setup']
+  if (state === 'error') return ['status', 'setup']
+  return ['setup', 'status']
 }
