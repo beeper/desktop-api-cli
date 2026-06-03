@@ -13,6 +13,7 @@
   "files": [
     "bin/cli.js",
     "dist",
+    "docs",
     "safety-profiles",
     "README.md",
     "LICENSE"
@@ -20,6 +21,7 @@
   "scripts": {
     "build": "bun run clean && bun scripts/prepare-desktop-api.ts && tsc -p tsconfig.json",
     "clean": "rm -rf dist",
+    "docs:commands": "bun scripts/generate-command-docs.ts",
     "dev": "bun ./bin/dev.js",
     "e2e:staging": "bun run build && bun test/e2e-staging.ts",
     "test": "bun run build && bun ./test/cli-smoke.ts && bun test",

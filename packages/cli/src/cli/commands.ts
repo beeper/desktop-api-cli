@@ -23,6 +23,7 @@ import { targetLiveStatus } from '../lib/target-status.js'
 import { promptChoice } from '../lib/prompts.js'
 import {
   builtInDesktopTargetID,
+  configPath,
   listTargets,
   publicTarget,
   readConfig,
@@ -31,6 +32,7 @@ import {
   resolveTarget,
   updateConfig,
   writeTarget,
+  type Config,
   type Target,
 } from '../lib/targets.js'
 import WebSocket from 'ws'
@@ -42,8 +44,9 @@ import {
   startProfile,
   stopProfile,
 } from '../lib/profiles.js'
-import type { CommandContext, CommandSpec, FlagSpec } from './types.js'
+import type { CommandContext, CommandSpec, FlagSpec, GlobalFlags } from './types.js'
 import { globalFlagSpecs, numberFlag, requiredStringFlag, stringFlag, stringListFlag } from './parse.js'
+import { commandVisible } from './policy.js'
 import { buildSchema } from './schema.js'
 import { serveMcp } from './mcp.js'
 import { usage, writeEvent, writeResult } from './output.js'
@@ -67,11 +70,13 @@ type SendPayload = {
   waitTimeoutMs?: number
 }
 
-const accountFilterFlag: FlagSpec = { name: 'account', type: 'string', multiple: true, description: 'Limit to account selector' }
-const candidateLimitFlag: FlagSpec = { name: 'limit', type: 'integer', default: 10, description: 'Maximum candidates' }
+const accountFilterFlag: FlagSpec = { name: 'account', short: 'a', aliases: ['acct'], type: 'string', multiple: true, description: 'Limit to account selector' }
+const candidateLimitFlag: FlagSpec = { name: 'limit', aliases: ['max'], type: 'integer', default: 10, description: 'Maximum candidates' }
 const chatFlag: FlagSpec = { name: 'chat', type: 'string', required: true, description: 'Chat selector' }
 const pickCandidateFlag: FlagSpec = { name: 'pick', type: 'integer', description: 'Select the Nth candidate' }
 const pickChatFlag: FlagSpec = { name: 'pick', type: 'integer', description: 'Pick the Nth result when selector is ambiguous' }
+const configKeys = ['defaultTarget', 'defaultAccount'] as const
+type ConfigKey = typeof configKeys[number]
 
 const chatFlags: FlagSpec[] = [
   chatFlag,
@@ -99,20 +104,41 @@ export const commands: CommandSpec[] = [
   {
     description: 'Print CLI version',
     mcp: true,
+    output: 'diagnostic',
     path: ['version'],
     risk: 'read',
     run: version,
   },
   {
     args: [{ name: 'target', description: 'Target name. Defaults to the selected target.' }],
+    aliases: [['st']],
     description: 'Show selected target and setup readiness',
     mcp: true,
+    output: 'status',
     path: ['status'],
     risk: 'read',
     run: status,
   },
   {
+    description: 'Run diagnostics for config, target reachability, auth, and readiness',
+    mcp: true,
+    output: 'diagnostic',
+    path: ['doctor'],
+    risk: 'read',
+    run: doctor,
+  },
+  {
+    aliases: [['agent', 'exit-codes'], ['exitcodes']],
+    description: 'Print stable exit codes for automation',
+    mcp: true,
+    output: 'diagnostic',
+    path: ['exit-codes'],
+    risk: 'read',
+    run: exitCodes,
+  },
+  {
     args: [{ name: 'command', variadic: true }],
+    aliases: [['help-json'], ['helpjson']],
     description: 'Print machine-readable command and flag schema',
     mcp: true,
     path: ['schema'],
@@ -121,10 +147,90 @@ export const commands: CommandSpec[] = [
   },
   {
     description: 'Run a typed MCP stdio server',
-    flags: [{ name: 'allow-write', type: 'boolean', default: false, description: 'Allow write-risk MCP tools' }],
+    flags: [
+      { name: 'allow-tool', aliases: ['tool'], type: 'string', multiple: true, description: 'Tool or command allowlist' },
+      { name: 'allow-write', type: 'boolean', default: false, description: 'Allow write-risk MCP tools' },
+      { name: 'list-tools', type: 'boolean', default: false, description: 'Print enabled MCP tools as JSON and exit' },
+      { name: 'max-output-bytes', type: 'integer', default: 102400, description: 'Maximum stdout/stderr bytes captured per tool call' },
+      { name: 'timeout-seconds', type: 'integer', default: 60, description: 'Per-tool subprocess timeout' },
+    ],
     path: ['mcp'],
     risk: 'read',
     run: mcp,
+  },
+  {
+    args: [{ name: 'shell', required: true, description: 'bash, zsh, fish, or powershell' }],
+    description: 'Generate shell completion scripts',
+    hidden: false,
+    path: ['completion'],
+    risk: 'read',
+    run: completion,
+  },
+  {
+    aliases: [['config', 'show']],
+    args: [{ name: 'key', required: true, description: 'Config key to get' }],
+    description: 'Get a config value',
+    mcp: true,
+    output: 'diagnostic',
+    path: ['config', 'get'],
+    risk: 'read',
+    run: configGet,
+  },
+  {
+    aliases: [['config', 'list-keys'], ['config', 'names']],
+    description: 'List available config keys',
+    mcp: true,
+    path: ['config', 'keys'],
+    risk: 'read',
+    run: configKeysCommand,
+  },
+  {
+    aliases: [['config', 'ls'], ['config', 'all']],
+    description: 'List all config values',
+    mcp: true,
+    output: 'diagnostic',
+    path: ['config', 'list'],
+    risk: 'read',
+    run: configList,
+  },
+  {
+    aliases: [['config', 'where']],
+    description: 'Print config file path',
+    mcp: true,
+    output: 'diagnostic',
+    path: ['config', 'path'],
+    risk: 'read',
+    run: configPathCommand,
+  },
+  {
+    aliases: [['config', 'add'], ['config', 'update']],
+    args: [
+      { name: 'key', required: true, description: 'Config key to set' },
+      { name: 'value', required: true, description: 'Value to set' },
+    ],
+    description: 'Set a config value',
+    output: 'diagnostic',
+    path: ['config', 'set'],
+    risk: 'write',
+    run: configSet,
+  },
+  {
+    aliases: [['config', 'rm'], ['config', 'del'], ['config', 'remove']],
+    args: [{ name: 'key', required: true, description: 'Config key to unset' }],
+    description: 'Unset a config value',
+    output: 'diagnostic',
+    path: ['config', 'unset'],
+    risk: 'write',
+    run: configUnset,
+  },
+  {
+    args: [{ name: 'words', variadic: true, description: 'Current command line words' }],
+    description: 'Internal completion helper',
+    flags: [{ name: 'cword', type: 'integer', default: -1, description: 'Current word index' }],
+    hidden: true,
+    path: ['__complete'],
+    risk: 'read',
+    run: completeCommand,
   },
   {
     description: 'Make the selected target ready for messaging',
@@ -145,8 +251,10 @@ export const commands: CommandSpec[] = [
     run: runSetup,
   },
   {
+    aliases: [['targets', 'ls']],
     description: 'List configured Beeper targets',
     mcp: true,
+    output: 'targets',
     path: ['targets', 'list'],
     risk: 'read',
     run: targetsList,
@@ -218,12 +326,14 @@ export const commands: CommandSpec[] = [
       { name: 'ids', type: 'boolean', default: false, description: 'Print only account IDs' },
     ],
     mcp: true,
+    output: 'accounts',
     path: ['accounts', 'list'],
     risk: 'read',
     run: accountsList,
   },
   {
     args: [{ name: 'selector', required: true, description: 'Target name' }],
+    aliases: [['targets', 'use']],
     description: 'Select the default target',
     path: ['use', 'target'],
     risk: 'write',
@@ -231,6 +341,7 @@ export const commands: CommandSpec[] = [
   },
   {
     args: [{ name: 'selector', required: true, description: 'Account selector' }],
+    aliases: [['accounts', 'use']],
     description: 'Select the default account',
     path: ['use', 'account'],
     risk: 'write',
@@ -255,6 +366,7 @@ export const commands: CommandSpec[] = [
   },
   {
     args: [{ name: 'selector', required: true, description: 'Target name' }],
+    aliases: [['targets', 'remove'], ['targets', 'rm']],
     description: 'Remove a target',
     path: ['remove', 'target'],
     risk: 'destructive',
@@ -262,12 +374,14 @@ export const commands: CommandSpec[] = [
   },
   {
     args: [{ name: 'selector', required: true, description: 'Account selector' }],
+    aliases: [['accounts', 'remove'], ['accounts', 'rm']],
     description: 'Remove an account',
     path: ['remove', 'account'],
     risk: 'destructive',
     run: removeAccount,
   },
   {
+    aliases: [['contacts', 'search'], ['contacts', 'find']],
     description: 'List contacts',
     flags: [
       accountFilterFlag,
@@ -276,11 +390,13 @@ export const commands: CommandSpec[] = [
       { name: 'query', type: 'string', description: 'Optional contact lookup query' },
     ],
     mcp: true,
+    output: 'contacts',
     path: ['contacts', 'list'],
     risk: 'read',
     run: contactsList,
   },
   {
+    aliases: [['chats', 'ls']],
     description: 'List chats',
     flags: [
       accountFilterFlag,
@@ -294,6 +410,7 @@ export const commands: CommandSpec[] = [
       { name: 'unread', type: 'boolean', description: 'Only unread chats; use --no-unread to exclude' },
     ],
     mcp: true,
+    output: 'chats',
     path: ['chats', 'list'],
     risk: 'read',
     run: chatsList,
@@ -499,6 +616,7 @@ export const commands: CommandSpec[] = [
   },
   {
     description: 'List chat messages',
+    aliases: [['messages', 'ls']],
     flags: [
       { name: 'after-cursor', type: 'string', description: 'Paginate messages newer than this message ID' },
       { name: 'asc', type: 'boolean', default: false, description: 'Order oldest first' },
@@ -510,6 +628,7 @@ export const commands: CommandSpec[] = [
       { name: 'sender', type: 'string', description: 'me, others, or a specific user ID' },
     ],
     mcp: true,
+    output: 'messages',
     path: ['messages', 'list'],
     risk: 'read',
     run: messagesList,
@@ -593,6 +712,7 @@ export const commands: CommandSpec[] = [
   },
   {
     args: [{ name: 'query' }],
+    aliases: [['messages', 'find']],
     description: 'Search messages across chats',
     examples: [
       'beeper messages search "quarterly report"',
@@ -607,11 +727,13 @@ export const commands: CommandSpec[] = [
       { name: 'exclude-low-priority', type: 'boolean', description: 'Exclude low-priority chats' },
       { name: 'ids', type: 'boolean', default: false, description: 'Print only message IDs' },
       { name: 'include-muted', type: 'boolean', default: true, description: 'Include muted chats' },
-      { name: 'limit', type: 'integer', default: 50, description: 'Maximum results' },
+      { name: 'limit', aliases: ['max'], type: 'integer', default: 50, description: 'Maximum results' },
       { name: 'media', type: 'string', multiple: true, enum: ['any', 'video', 'image', 'link', 'file'], description: 'Filter by media type' },
       { name: 'sender', type: 'string', description: 'me, others, or a user ID' },
+      { name: 'fail-empty', aliases: ['non-empty', 'require-results'], type: 'boolean', default: false, description: 'Exit with code 3 if no results' },
     ],
     mcp: true,
+    output: 'messages',
     path: ['messages', 'search'],
     risk: 'read',
     run: messagesSearch,
@@ -632,7 +754,9 @@ export const commands: CommandSpec[] = [
     description: 'Send a text message',
     flags: [
       ...sendDeliveryFlags,
-      { name: 'message', type: 'string', required: true, description: 'Message text to send' },
+      { name: 'message', type: 'string', description: 'Message text to send' },
+      { name: 'message-escapes', type: 'boolean', default: false, description: 'Interpret backslash escapes in --message' },
+      { name: 'message-file', type: 'string', description: "Read message text from a file path; '-' reads stdin" },
       { name: 'mention', type: 'string', multiple: true, description: 'User ID to mention' },
       { name: 'no-preview', type: 'boolean', default: false, description: 'Disable automatic link preview' },
     ],
@@ -737,8 +861,12 @@ export const commands: CommandSpec[] = [
   },
 ]
 
-export function commandHelp(command: CommandSpec): string {
-  const lines = [`beeper ${command.path.join(' ')}`, '', command.description]
+export function commandHelp(command: CommandSpec, globalFlags?: GlobalFlags): string {
+  if (globalFlags && !commandVisible(command, globalFlags)) return help(globalFlags)
+  const path = command.path.join(' ')
+  const usageAliases = (command.aliases ?? []).map(alias => alias.join(' ')).join(', ')
+  const lines = [`Usage: beeper ${path}${command.args?.length ? ` ${command.args.map(arg => arg.variadic ? `<${arg.name}> ...` : arg.required ? `<${arg.name}>` : `[${arg.name}]`).join(' ')}` : ''} [flags]`, '', command.description]
+  if (usageAliases) lines.push('', `Aliases: ${usageAliases}`)
   const args = command.args ?? []
   const flags = command.flags ?? []
   if (args.length) {
@@ -747,23 +875,46 @@ export function commandHelp(command: CommandSpec): string {
   }
   if (flags.length) {
     lines.push('', 'Flags:')
-    for (const flag of flags) lines.push(`  --${flag.name}${flag.type === 'boolean' ? '' : ' <value>'}\t${flag.description ?? ''}`)
+    for (const flag of flags) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
   }
   if (command.examples?.length) {
     lines.push('', 'Examples:', ...command.examples.map(example => `  ${example}`))
   }
+  lines.push('', 'Global flags:')
+  for (const flag of globalFlagSpecs) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
   return `${lines.join('\n')}\n`
 }
 
-export function help(): string {
-  const width = Math.max(...commands.map(command => command.path.join(' ').length)) + 2
-  const lines = ['Usage: beeper <command> [flags]', '', 'Commands:']
-  for (const command of [...commands].sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))) {
-    lines.push(`  ${command.path.join(' ').padEnd(width)}${command.description}`)
+export function help(globalFlags?: GlobalFlags): string {
+  const visible = commands.filter(command => globalFlags ? commandVisible(command, globalFlags) : !command.hidden)
+  const width = Math.max(...visible.map(command => command.path.join(' ').length)) + 2
+  const lines = [
+    'Usage: beeper <command> [flags]',
+    '',
+    'Beeper CLI for Beeper Desktop and Beeper Server. Built for terminals, scripts, CI, and agents.',
+    '',
+    'Config:',
+    '',
+    `    file: ${configPath()}`,
+    '',
+    'Commands:',
+  ]
+  for (const command of [...visible].sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))) {
+    const aliases = command.aliases?.length ? ` (${command.aliases.map(alias => alias.join(' ')).join(', ')})` : ''
+    lines.push(`  ${command.path.join(' ').padEnd(width)}${command.description}${aliases}`)
   }
   lines.push('', 'Global flags:')
-  for (const flag of globalFlagSpecs) lines.push(`  --${flag.name}${flag.type === 'boolean' ? '' : ' <value>'}\t${flag.description ?? ''}`)
+  for (const flag of globalFlagSpecs) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
+  lines.push('', 'Run "beeper <command> --help" for more information on a command.')
   return `${lines.join('\n')}\n`
+}
+
+function formatFlag(flag: FlagSpec): string {
+  const long = `--${flag.name}${flag.type === 'boolean' ? '' : `=${flag.placeholder ?? 'STRING'}`}`
+  const prefix = flag.short ? `-${flag.short}, ${long}` : `    ${long}`
+  const aliases = flag.aliases?.length ? ` (${flag.aliases.map(alias => `--${alias}`).join(', ')})` : ''
+  const env = flag.env?.length ? ` (${flag.env.map(name => `$${name}`).join(',')})` : ''
+  return `${prefix}${aliases}${env}`
 }
 
 async function version(): Promise<Record<string, unknown>> {
@@ -787,14 +938,124 @@ async function status(ctx: CommandContext): Promise<Record<string, unknown>> {
   }
 }
 
+async function doctor(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const config = await readConfig()
+  const targets = await listTargets()
+  const target = await resolveTarget({ target: ctx.globalFlags.target }).catch(() => undefined)
+  const live = target ? await targetLiveStatus(target) : undefined
+  const readiness = target && live && (live as Record<string, unknown>).reachable
+    ? await evaluateReadiness({ baseURL: target.baseURL, target: target.id }).catch(error => ({ state: 'unknown', message: error instanceof Error ? error.message : String(error) }))
+    : undefined
+  return {
+    config_file: process.env.BEEPER_CLI_CONFIG_DIR ? `${process.env.BEEPER_CLI_CONFIG_DIR}/config.json` : undefined,
+    default_target: config.defaultTarget ?? builtInDesktopTargetID,
+    default_account: config.defaultAccount,
+    targets: targets.length || 1,
+    selected_target: target?.id,
+    target_type: target?.type,
+    reachable: isRecord(live) ? live.reachable : false,
+    authenticated: Boolean(process.env.BEEPER_ACCESS_TOKEN || target?.auth?.accessToken),
+    readiness: isRecord(readiness) ? readiness.state : undefined,
+    next: isRecord(readiness) ? readiness.message : undefined,
+  }
+}
+
+async function exitCodes(): Promise<Record<string, unknown>> {
+  return {
+    exit_codes: {
+      ok: 0,
+      error: ExitCodes.Generic,
+      usage: ExitCodes.Usage,
+      empty_results: ExitCodes.EmptyResults,
+      auth_required: ExitCodes.AuthRequired,
+      not_ready: ExitCodes.NotReady,
+      not_found: ExitCodes.NotFound,
+      ambiguous: ExitCodes.Ambiguous,
+      cancelled: 130,
+      command_not_found: ExitCodes.CommandNotFound,
+    },
+  }
+}
+
 async function schema(ctx: CommandContext): Promise<Record<string, unknown>> {
   const pkg = await packageInfo()
-  return buildSchema(commands, String(pkg.version ?? '0'), ctx.args)
+  return buildSchema(commands, String(pkg.version ?? '0'), ctx.args, ctx.globalFlags)
 }
 
 async function mcp(ctx: CommandContext): Promise<void> {
   const pkg = await packageInfo()
-  await serveMcp(commands, ctx.globalFlags, Boolean(ctx.flags['allow-write']), String(pkg.version ?? '0'))
+  await serveMcp(commands, ctx.globalFlags, {
+    allowTools: stringListFlag(ctx.flags, 'allow-tool'),
+    allowWrite: Boolean(ctx.flags['allow-write']),
+    listTools: Boolean(ctx.flags['list-tools']),
+    maxOutputBytes: numberFlag(ctx.flags, 'max-output-bytes', 102400),
+    timeoutSeconds: numberFlag(ctx.flags, 'timeout-seconds', 60),
+  }, String(pkg.version ?? '0'))
+}
+
+async function completion(ctx: CommandContext): Promise<void> {
+  const shell = ctx.args[0]
+  if (!shell) throw usage('completion requires shell')
+  process.stdout.write(completionScript(shell))
+}
+
+async function configGet(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const key = parseConfigKey(ctx.args[0])
+  const config = await readConfig()
+  return { key, value: config[key] ?? null }
+}
+
+async function configKeysCommand(): Promise<string[]> {
+  return [...configKeys]
+}
+
+async function configList(): Promise<Record<string, unknown>> {
+  const config = await readConfig()
+  return {
+    path: configPath(),
+    defaultTarget: config.defaultTarget ?? null,
+    defaultAccount: config.defaultAccount ?? null,
+  }
+}
+
+async function configPathCommand(): Promise<Record<string, unknown>> {
+  return { path: configPath() }
+}
+
+async function configSet(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const key = parseConfigKey(ctx.args[0])
+  const value = ctx.args[1]
+  if (!value) throw usage('config set requires value')
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'config.set', request: { key, value } }
+  const config = await updateConfig(current => ({ ...current, [key]: value }))
+  return { key, saved: true, value: config[key] ?? null }
+}
+
+async function configUnset(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const key = parseConfigKey(ctx.args[0])
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'config.unset', request: { key } }
+  const config = await updateConfig(current => unsetConfigKey(current, key))
+  return { key, removed: true, value: config[key] ?? null }
+}
+
+function parseConfigKey(value: string | undefined): ConfigKey {
+  if (!value) throw usage(`config key is required. Available keys: ${configKeys.join(', ')}`)
+  const normalized = value.replaceAll('-', '').replaceAll('_', '').toLowerCase()
+  const key = configKeys.find(item => item.toLowerCase() === normalized)
+  if (!key) throw usage(`unknown config key "${value}". Available keys: ${configKeys.join(', ')}`)
+  return key
+}
+
+function unsetConfigKey(config: Config, key: ConfigKey): Config {
+  const next = { ...config }
+  delete next[key]
+  return next
+}
+
+async function completeCommand(ctx: CommandContext): Promise<void> {
+  const cword = numberFlag(ctx.flags, 'cword', -1)
+  const words = ctx.args.length ? ctx.args : ['beeper']
+  for (const item of completeWords(words, cword)) process.stdout.write(`${item}\n`)
 }
 
 async function targetsList(): Promise<unknown[]> {
@@ -1520,6 +1781,9 @@ async function messagesSearch(ctx: CommandContext): Promise<unknown> {
     query: ctx.args[0],
     sender: stringFlag(ctx.flags, 'sender') as 'me' | 'others' | (string & {}) | undefined,
   }), numberFlag(ctx.flags, 'limit', 50))
+  if (!items.length && ctx.flags['fail-empty']) {
+    throw new AbortError('No messages matched the query or filters.', ExitCodes.EmptyResults, undefined, 'empty_results')
+  }
   return ctx.flags.ids ? ids(items.map(apiRecord), 'messageID') : items
 }
 
@@ -1537,7 +1801,7 @@ async function sendTextLike(ctx: CommandContext): Promise<unknown> {
   const kind = ctx.commandPath[1]
   if (kind !== 'file' && kind !== 'sticker' && kind !== 'text' && kind !== 'voice') throw usage(`Unsupported send command: ${ctx.commandPath.join(' ')}`)
   const to = stringFlag(ctx.flags, 'to')!
-  const payload = sendPayload(ctx, kind)
+  const payload = await sendPayload(ctx, kind)
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: `send.${kind}`, request: { chat: to, ...payload } }
 
   const client = await apiClient(ctx)
@@ -1700,13 +1964,14 @@ function jsonBody(ctx: CommandContext): Record<string, unknown> {
   }
 }
 
-function sendPayload(ctx: CommandContext, kind: SendKind): SendPayload {
+async function sendPayload(ctx: CommandContext, kind: SendKind): Promise<SendPayload> {
   if (kind === 'text') {
+    const message = await messageText(ctx)
     return {
       mentions: stringListFlag(ctx.flags, 'mention'),
       noPreview: Boolean(ctx.flags['no-preview']),
       replyTo: stringFlag(ctx.flags, 'reply-to'),
-      text: stringFlag(ctx.flags, 'message')!,
+      text: message,
       wait: Boolean(ctx.flags.wait),
       waitTimeoutMs: numberFlag(ctx.flags, 'wait-timeout', 30_000),
     }
@@ -1724,6 +1989,30 @@ function sendPayload(ctx: CommandContext, kind: SendKind): SendPayload {
     wait: Boolean(ctx.flags.wait),
     waitTimeoutMs: numberFlag(ctx.flags, 'wait-timeout', 30_000),
   }
+}
+
+async function messageText(ctx: CommandContext): Promise<string> {
+  const literal = stringFlag(ctx.flags, 'message')
+  const file = stringFlag(ctx.flags, 'message-file')
+  if (literal && file) throw usage('--message and --message-file cannot be combined')
+  if (file) return file === '-' ? await readStdin() : readFile(file, 'utf8')
+  if (literal !== undefined) return ctx.flags['message-escapes'] ? decodeEscapes(literal) : literal
+  throw usage('send text requires --message or --message-file')
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function decodeEscapes(value: string): string {
+  return value.replaceAll(/\\([nrt\\"])/g, (_, escaped: string) => {
+    if (escaped === 'n') return '\n'
+    if (escaped === 'r') return '\r'
+    if (escaped === 't') return '\t'
+    return escaped
+  })
 }
 
 async function sendPresence(ctx: CommandContext): Promise<unknown> {
@@ -1985,6 +2274,128 @@ function matchesSender(item: unknown, sender: string): boolean {
   if (sender === 'me') return row.isSender === true
   if (sender === 'others') return row.isSender !== true
   return row.senderID === sender
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function completionScript(shell: string): string {
+  const command = 'beeper'
+  if (shell === 'bash') {
+    return [
+      '_beeper_complete() {',
+      '  local completions',
+      '  completions=$(beeper __complete --cword "$COMP_CWORD" -- "${COMP_WORDS[@]}")',
+      '  COMPREPLY=( $completions )',
+      '}',
+      `complete -F _beeper_complete ${command}`,
+      '',
+    ].join('\n')
+  }
+  if (shell === 'zsh') {
+    return [
+      '#compdef beeper',
+      '_beeper() {',
+      '  local -a completions',
+      '  completions=("${(@f)$(beeper __complete --cword "$((CURRENT - 1))" -- "${words[@]}")}")',
+      '  _describe "values" completions',
+      '}',
+      '_beeper "$@"',
+      '',
+    ].join('\n')
+  }
+  if (shell === 'fish') {
+    return `complete -c ${command} -f -a '(beeper __complete --cword (commandline -t | wc -w) -- (commandline -opc))'\n`
+  }
+  if (shell === 'powershell' || shell === 'pwsh') {
+    return [
+      `Register-ArgumentCompleter -Native -CommandName ${command} -ScriptBlock {`,
+      '  param($wordToComplete, $commandAst, $cursorPosition)',
+      '  $words = $commandAst.ToString().Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)',
+      '  $cword = [Math]::Max(0, $words.Length - 1)',
+      '  beeper __complete --cword $cword -- $words | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_) }',
+      '}',
+      '',
+    ].join('\n')
+  }
+  throw usage('completion shell must be one of: bash, zsh, fish, powershell')
+}
+
+function completeWords(words: string[], cword: number): string[] {
+  const index = normalizeCword(cword, words.length)
+  const start = isProgramName(words[0]) ? 1 : 0
+  if (index < start) return []
+  const current = index < words.length ? words[index] ?? '' : ''
+  const consumed = words.slice(start, Math.min(index, words.length))
+  if (consumed.includes('--')) return []
+  const node = completionNode(consumed)
+  if (!node || previousFlagNeedsValue(node.flags, words, index)) return []
+  const flags = node.flags
+  const children = node.children
+  const suggestions = current.startsWith('-')
+    ? matching([...flags], current)
+    : matching([...children, ...flags], current)
+  return [...new Set(suggestions)].sort()
+}
+
+function completionNode(consumed: string[]): { children: string[]; command?: CommandSpec; flags: string[] } | undefined {
+  let candidates = commands.filter(command => !command.hidden)
+  let depth = 0
+  for (const word of consumed) {
+    if (word.startsWith('-')) continue
+    const next = candidates.filter(command => commandPathVariants(command).some(path => path[depth] === word))
+    if (!next.length) break
+    candidates = next
+    depth += 1
+  }
+  const exact = candidates.find(command => commandPathVariants(command).some(path => path.length === depth))
+  const children = new Set<string>()
+  for (const command of candidates) {
+    for (const path of commandPathVariants(command)) {
+      const part = path[depth]
+      if (part) children.add(part)
+    }
+  }
+  return {
+    children: [...children],
+    command: exact,
+    flags: flagTokens([...(exact?.flags ?? []), ...globalFlagSpecs]),
+  }
+}
+
+function commandPathVariants(command: CommandSpec): string[][] {
+  return [command.path, ...(command.aliases ?? [])]
+}
+
+function flagTokens(flags: FlagSpec[]): string[] {
+  return flags.flatMap(flag => [
+    `--${flag.name}`,
+    flag.short ? `-${flag.short}` : undefined,
+    ...(flag.aliases ?? []).map(alias => `--${alias}`),
+    flag.type === 'boolean' ? `--no-${flag.name}` : undefined,
+  ]).filter((value): value is string => Boolean(value))
+}
+
+function previousFlagNeedsValue(flags: string[], words: string[], cword: number): boolean {
+  const previous = words[cword - 1]
+  if (!previous?.startsWith('-') || previous.includes('=')) return false
+  const spec = [...globalFlagSpecs, ...commands.flatMap(command => command.flags ?? [])]
+    .find(flag => [`--${flag.name}`, flag.short ? `-${flag.short}` : undefined, ...(flag.aliases ?? []).map(alias => `--${alias}`)].includes(previous))
+  return Boolean(spec && spec.type !== 'boolean' && flags.includes(previous))
+}
+
+function matching(values: string[], prefix: string): string[] {
+  return values.filter(value => value.startsWith(prefix))
+}
+
+function normalizeCword(cword: number, count: number): number {
+  if (cword < 0) return Math.max(0, count - 1)
+  return Math.min(cword, count)
+}
+
+function isProgramName(word?: string): boolean {
+  return !word || word === 'beeper' || word.endsWith('/beeper') || word.endsWith('/dev.js') || word.endsWith('/cli.js')
 }
 
 async function packageInfo(): Promise<Record<string, unknown>> {

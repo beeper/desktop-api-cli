@@ -6,10 +6,39 @@ import type { CommandSpec, GlobalFlags } from './types.js'
 import { usage } from './output.js'
 
 export function enforcePolicy(command: CommandSpec, flags: GlobalFlags): void {
+  enforceCommandFilters(command, flags)
+  if (flags.readOnly && command.risk !== 'read') {
+    throw usage(`read-only mode: command "${command.path.join(' ')}" would intentionally modify Beeper or local CLI state`)
+  }
   const profile = flags.safetyProfile ? loadSafetyProfile(flags.safetyProfile) : undefined
   if (profile && !matchesPrefix(profile.allow, command.path)) {
     throw usage(`command "${command.path.join(' ')}" is blocked by safety profile "${profile.name}"`)
   }
+}
+
+export function commandVisible(command: CommandSpec, flags: GlobalFlags): boolean {
+  if (command.hidden) return false
+  if (flags.readOnly && command.risk !== 'read') return false
+  if (!commandAllowedByFilters(command, flags)) return false
+  const profile = flags.safetyProfile ? loadSafetyProfile(flags.safetyProfile) : undefined
+  return !profile || matchesPrefix(profile.allow, command.path)
+}
+
+function enforceCommandFilters(command: CommandSpec, flags: GlobalFlags): void {
+  if (commandAllowedByFilters(command, flags)) return
+  const path = command.path
+  if (rulesFromCSV(flags.disableCommands).size && matchesPrefix(rulesFromCSV(flags.disableCommands), path)) throw usage(`command "${path.join(' ')}" is disabled (blocked by --disable-commands)`)
+  throw usage(`command "${path.join(' ')}" is not enabled (set --enable-commands or --enable-commands-exact to allow it)`)
+}
+
+function commandAllowedByFilters(command: CommandSpec, flags: GlobalFlags): boolean {
+  const path = command.path
+  const allow = rulesFromCSV(flags.enableCommands)
+  const exactAllow = rulesFromCSV(flags.enableCommandsExact)
+  const deny = rulesFromCSV(flags.disableCommands)
+  if (deny.size && matchesPrefix(deny, path)) return false
+  if ((allow.size || exactAllow.size) && !matchesPrefix(allow, path) && !matchesExact(exactAllow, path)) return false
+  return true
 }
 
 function loadSafetyProfile(nameOrPath: string): { allow: Set<string>; name: string } {
@@ -46,6 +75,19 @@ function matchesPrefix(rules: Set<string>, path: string[]): boolean {
     if (rules.has(path.slice(0, index).join('.'))) return true
   }
   return false
+}
+
+function matchesExact(rules: Set<string>, path: string[]): boolean {
+  return rules.has('*') || rules.has('all') || rules.has(path.join('.'))
+}
+
+function rulesFromCSV(value?: string): Set<string> {
+  const out = new Set<string>()
+  for (const part of (value ?? '').split(',')) {
+    const rule = normalizeRule(part)
+    if (rule) out.add(rule)
+  }
+  return out
 }
 
 function normalizeRule(value: string): string {

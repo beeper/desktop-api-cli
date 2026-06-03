@@ -9,7 +9,20 @@ type JsonRpcRequest = {
   params?: Record<string, unknown>
 }
 
-export async function serveMcp(commands: CommandSpec[], flags: GlobalFlags, allowWrite: boolean, version: string): Promise<void> {
+type McpOptions = {
+  allowTools: string[]
+  allowWrite: boolean
+  listTools: boolean
+  maxOutputBytes: number
+  timeoutSeconds: number
+}
+
+export async function serveMcp(commands: CommandSpec[], flags: GlobalFlags, options: McpOptions, version: string): Promise<void> {
+  const tools = mcpCommands(commands, options)
+  if (options.listTools) {
+    process.stdout.write(`${JSON.stringify(mcpTools(tools), null, 2)}\n`)
+    return
+  }
   const buffer: string[] = []
   process.stdin.setEncoding('utf8')
   for await (const chunk of process.stdin) {
@@ -19,14 +32,14 @@ export async function serveMcp(commands: CommandSpec[], flags: GlobalFlags, allo
     while (index !== -1) {
       const line = joined.slice(0, index).trim()
       joined = joined.slice(index + 1)
-      if (line) await handleLine(commands, flags, allowWrite, version, line)
+      if (line) await handleLine(tools, flags, options, version, line)
       index = joined.indexOf('\n')
     }
     buffer.length = 0
     if (joined) buffer.push(joined)
   }
   const finalLine = buffer.join('').trim()
-  if (finalLine) await handleLine(commands, flags, allowWrite, version, finalLine)
+  if (finalLine) await handleLine(tools, flags, options, version, finalLine)
 }
 
 function mcpTools(commands: CommandSpec[]): Record<string, unknown>[] {
@@ -50,7 +63,7 @@ function mcpTools(commands: CommandSpec[]): Record<string, unknown>[] {
     }))
 }
 
-async function handleLine(commands: CommandSpec[], flags: GlobalFlags, allowWrite: boolean, version: string, line: string): Promise<void> {
+async function handleLine(commands: CommandSpec[], flags: GlobalFlags, options: McpOptions, version: string, line: string): Promise<void> {
   let request: JsonRpcRequest = {}
   try {
     request = JSON.parse(line) as JsonRpcRequest
@@ -66,7 +79,7 @@ async function handleLine(commands: CommandSpec[], flags: GlobalFlags, allowWrit
       const name = String(request.params?.name ?? '')
       const tool = commands.find(command => command.mcp && command.path.join('_') === name)
       if (!tool) throw new Error(`unknown MCP tool: ${name}`)
-      if (tool.risk !== 'read' && !allowWrite) throw new Error(`MCP tool "${name}" requires mcp --allow-write`)
+      if (tool.risk !== 'read' && !options.allowWrite) throw new Error(`MCP tool "${name}" requires mcp --allow-write`)
       const args = request.params?.arguments && typeof request.params.arguments === 'object'
         ? request.params.arguments as Record<string, unknown>
         : {}
@@ -75,14 +88,57 @@ async function handleLine(commands: CommandSpec[], flags: GlobalFlags, allowWrit
       const toolFlags = flagsFor(tool, args)
       validateCommandInput(tool, toolFlags, positionals)
       enforcePolicy(tool, globalFlags)
-      const result = await tool.run({ args: positionals, commandPath: tool.path, flags: toolFlags, globalFlags })
-      respond(request.id, { content: [{ text: JSON.stringify(wrapUntrusted(result)), type: 'text' }] })
+      const result = await withTimeout(options.timeoutSeconds, () => tool.run({ args: positionals, commandPath: tool.path, flags: toolFlags, globalFlags }))
+      const structured = {
+        exit_code: 0,
+        risk: tool.risk,
+        service: tool.path[0],
+        stdout: wrapUntrusted(result),
+        stderr: '',
+        tool: tool.path.join('_'),
+      }
+      respond(request.id, { content: [{ text: truncate(JSON.stringify(structured), options.maxOutputBytes), type: 'text' }], structuredContent: structured })
       return
     }
     if (request.id !== undefined) respond(request.id, {})
   } catch (error) {
     respondError(request.id, error instanceof Error ? error.message : String(error))
   }
+}
+
+function mcpCommands(commands: CommandSpec[], options: McpOptions): CommandSpec[] {
+  return commands
+    .filter(command => command.mcp)
+    .filter(command => options.allowWrite || command.risk === 'read')
+    .filter(command => !options.allowTools.length || options.allowTools.some(pattern => toolMatches(command, pattern)))
+}
+
+function toolMatches(command: CommandSpec, pattern: string): boolean {
+  const normalized = pattern.trim().toLowerCase().replaceAll(/\s+/g, '.').replaceAll('_', '.')
+  if (!normalized || normalized === '*' || normalized === 'all') return true
+  const dotted = command.path.join('.')
+  const underscored = command.path.join('_')
+  return normalized === command.risk || normalized === command.path[0] || normalized === dotted || normalized === underscored || (normalized.endsWith('.*') && dotted.startsWith(normalized.slice(0, -2) + '.'))
+}
+
+async function withTimeout<T>(seconds: number, run: () => Promise<T>): Promise<T> {
+  if (seconds <= 0) throw new Error('--timeout-seconds must be greater than zero')
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`MCP tool timed out after ${seconds}s`)), seconds * 1000)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
+function truncate(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return value
+  return Buffer.byteLength(value) <= maxBytes ? value : `${value.slice(0, maxBytes)}...`
 }
 
 function inputSchemaForFlag(flag: FlagSpec): Record<string, unknown> {

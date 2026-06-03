@@ -2,8 +2,8 @@
  * Beeper CLI exit codes:
  *   1   generic runtime error
  *   2   usage error (parsing, missing required flag/arg, invalid combination)
- *   3   auth required (no stored token; user must authenticate)
- *   4   target/account not ready (target reachable but not signed-in or not verified)
+ *   3   empty results when --fail-empty/--non-empty is set
+ *   4   auth required (no stored token; user must authenticate)
  *   5   not found (selector matched nothing)
  *   6   ambiguous selector (multiple matches; use exact ID or --pick)
  *   127 user declined a selector suggestion (POSIX "command not found" semantics)
@@ -11,7 +11,8 @@
 export const ExitCodes = {
   Generic: 1,
   Usage: 2,
-  AuthRequired: 3,
+  EmptyResults: 3,
+  AuthRequired: 4,
   NotReady: 4,
   NotFound: 5,
   Ambiguous: 6,

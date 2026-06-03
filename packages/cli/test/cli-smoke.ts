@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const configDir = '/tmp/beeper-cli-smoke'
 rmSync(configDir, { recursive: true, force: true })
+rmSync('/tmp/beeper-cli-smoke-home', { recursive: true, force: true })
 
 const run = (...args: string[]) => spawnSync('bun', ['./bin/dev.js', ...args], {
   cwd: root,
@@ -22,6 +23,16 @@ const ok = (...args: string[]) => {
   assert.equal(result.status, 0, `${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`)
   return result.stdout
 }
+
+const runEnv = (env: Record<string, string>, ...args: string[]) => spawnSync('bun', ['./bin/dev.js', ...args], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
+    ...env,
+  },
+})
 
 assert.match(ok('--help'), /Usage: beeper <command>/)
 assert.match(ok('--help'), /targets add/)
@@ -63,6 +74,22 @@ assert.match(ok('--help'), /resolve target\s+Resolve a target selector/)
 assert.match(ok('--help'), /watch/)
 assert.match(ok('--help'), /media download/)
 assert.match(ok('--help'), /export\s+Export accounts/)
+assert.match(ok('--help'), /doctor\s+Run diagnostics/)
+assert.match(ok('--help'), /exit-codes\s+Print stable exit codes/)
+assert.match(ok('--help'), /Config:\n\n    file: /)
+assert.match(ok('--help'), /config path\s+Print config file path/)
+assert.match(ok('--help'), /config set\s+Set a config value/)
+assert.match(ok('--help'), /--full\s+Disable truncation in human table output/)
+assert.match(ok('--help'), /--read-only \(\$BEEPER_READONLY\)/)
+assert.match(ok('--version', '--json'), /"name": "beeper-cli"/)
+assert.match(ok('st'), /READINESS/)
+assert.match(ok('doctor'), /SELECTED TARGET/)
+assert.match(ok('targets', 'ls'), /ID\s+DEFAULT\s+TYPE/)
+assert.equal(existsSync(join(root, 'docs', 'commands', 'README.md')), true)
+assert.equal(existsSync(join(root, 'docs', 'commands', 'send-text.md')), true)
+assert.match(ok('__complete', '--cword', '2', '--', 'beeper', 'targets', 'l'), /list/)
+assert.match(ok('__complete', '--cword', '3', '--', 'beeper', 'send', 'text', '--m'), /--message-file/)
+assert.match(ok('completion', 'bash'), /__complete/)
 assert.match(ok('setup', '--help'), /--remote/)
 assert.match(ok('targets', 'tunnel', '--help'), /--url-only/)
 assert.match(ok('accounts', 'add', '--help'), /--webview-backend/)
@@ -99,13 +126,68 @@ errorPayload = JSON.parse(result.stderr)
 assert.equal(errorPayload.error.code, 'usage_error')
 assert.match(errorPayload.error.message, /--limit must be an integer/)
 
+result = run('version', '--timeout', 'bogus', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.equal(errorPayload.error.code, 'usage_error')
+assert.match(errorPayload.error.message, /--timeout must be a duration/)
+
 let payload = JSON.parse(ok('targets', 'list', '--json'))
 assert.equal(payload[0].id, 'desktop')
 assert.equal(existsSync(join(configDir, 'config.json')), false)
 assert.equal(existsSync(join(configDir, 'targets')), false)
 
+payload = JSON.parse(ok('--home', '/tmp/beeper-cli-smoke-home', 'targets', 'list', '--json'))
+assert.equal(payload[0].id, 'desktop')
+assert.equal(existsSync('/tmp/beeper-cli-smoke-home'), false)
+
+payload = JSON.parse(ok('config', 'path', '--json'))
+assert.equal(payload.path, join(configDir, 'config.json'))
+
+payload = JSON.parse(ok('config', 'keys', '--json'))
+assert.deepEqual(payload, ['defaultTarget', 'defaultAccount'])
+
+payload = JSON.parse(ok('config', 'set', 'default-target', 'desktop', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'config.set')
+assert.equal(payload.request.key, 'defaultTarget')
+
+result = run('--read-only', 'config', 'set', 'default-target', 'desktop', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /read-only mode/)
+
+result = runEnv({ BEEPER_READONLY: '1' }, 'config', 'set', 'default-target', 'desktop', '--json')
+assert.equal(result.status, 2)
+errorPayload = JSON.parse(result.stderr)
+assert.match(errorPayload.error.message, /read-only mode/)
+
+payload = JSON.parse(runEnv({ BEEPER_READONLY: '1' }, '--no-read-only', 'config', 'set', 'default-target', 'desktop', '--dry-run', '--json').stdout)
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'config.set')
+
 payload = JSON.parse(ok('use', 'target', 'desktop', '--json'))
 assert.equal(payload.defaultTarget, 'desktop')
+
+payload = JSON.parse(ok('config', 'get', 'defaultTarget', '--json'))
+assert.equal(payload.key, 'defaultTarget')
+assert.equal(payload.value, 'desktop')
+
+payload = JSON.parse(ok('config', 'list', '--json'))
+assert.equal(payload.defaultTarget, 'desktop')
+assert.equal(payload.defaultAccount, null)
+
+payload = JSON.parse(ok('config', 'set', 'default-account', 'matrix', '--json'))
+assert.equal(payload.saved, true)
+assert.equal(payload.key, 'defaultAccount')
+assert.equal(payload.value, 'matrix')
+
+payload = JSON.parse(ok('config', 'show', 'default_account', '--json'))
+assert.equal(payload.value, 'matrix')
+
+payload = JSON.parse(ok('config', 'rm', 'default-account', '--json'))
+assert.equal(payload.removed, true)
+assert.equal(payload.value, null)
 
 result = run('--safety-profile', 'readonly', 'use', 'target', 'desktop', '--json')
 assert.equal(result.status, 2)
@@ -171,6 +253,12 @@ assert.equal(payload.target.type, 'remote')
 payload = JSON.parse(ok('use', 'target', 'work', '--json'))
 assert.equal(payload.defaultTarget, 'work')
 
+payload = JSON.parse(ok('targets', 'use', 'desktop', '--json'))
+assert.equal(payload.defaultTarget, 'desktop')
+
+payload = JSON.parse(ok('targets', 'use', 'work', '--json'))
+assert.equal(payload.defaultTarget, 'work')
+
 payload = JSON.parse(ok('status', '--json'))
 assert.equal(payload.auth.authenticated, false)
 assert.equal(payload.target.id, 'work')
@@ -229,6 +317,11 @@ assert.equal(payload.dry_run, true)
 assert.equal(payload.op, 'remove.target')
 assert.equal(payload.request.id, 'work')
 
+payload = JSON.parse(ok('targets', 'rm', 'work', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'remove.target')
+assert.equal(payload.request.id, 'work')
+
 payload = JSON.parse(ok('api', 'request', 'POST', '/v1/example', '--body', '{"ok":true}', '--dry-run', '--json'))
 assert.equal(payload.dry_run, true)
 assert.equal(payload.request.body.ok, true)
@@ -246,6 +339,14 @@ payload = JSON.parse(ok('send', 'text', '--to', 'chat', '--message', 'hello', '-
 assert.equal(payload.dry_run, true)
 assert.equal(payload.op, 'send.text')
 assert.equal(payload.request.mentions[0], 'user1')
+
+payload = JSON.parse(ok('send', 'text', '--to', 'chat', '--message', 'hello\\nthere', '--message-escapes', '--dry-run', '--json'))
+assert.equal(payload.request.text, 'hello\nthere')
+
+payload = JSON.parse(ok('-a', 'matrix', 'chats', 'start', '@u:example.org', '--dry-run', '--json'))
+assert.equal(payload.dry_run, true)
+assert.equal(payload.op, 'chats.start')
+assert.equal(payload.request.account, 'matrix')
 
 payload = JSON.parse(ok('send', 'react', '--to', 'chat', '--id', 'm1', '--reaction', '+1', '--dry-run', '--json'))
 assert.equal(payload.dry_run, true)
@@ -334,6 +435,31 @@ assert.equal(payload[0].id, 'work')
 const schema = JSON.parse(ok('schema', '--json'))
 assert.equal(schema.schema_version, 1)
 assert.equal(schema.command.type, 'application')
+assert.ok(schema.command.flags.some((flag: { name: string; short?: string }) => flag.name === 'json' && flag.short === 'j'))
+assert.ok(schema.command.flags.some((flag: { name: string; short?: string }) => flag.name === 'account' && flag.short === 'a'))
+assert.ok(schema.command.flags.some((flag: { name: string }) => flag.name === 'full'))
+assert.ok(schema.command.subcommands.some((command: { name: string }) => command.name === 'doctor'))
+assert.ok(!schema.command.subcommands.some((command: { name: string }) => command.name === '__complete'))
+
+let filteredHelp = ok('--read-only', '--help')
+assert.match(filteredHelp, /targets list/)
+assert.doesNotMatch(filteredHelp, /send text/)
+
+let filteredSchema = JSON.parse(ok('--read-only', 'schema', '--json'))
+assert.equal(schemaPaths(filteredSchema).includes('send text'), false)
+assert.equal(schemaPaths(filteredSchema).includes('targets list'), true)
+
+filteredHelp = ok('--enable-commands', 'messages', '--help')
+assert.match(filteredHelp, /messages search/)
+assert.doesNotMatch(filteredHelp, /targets list/)
+
+filteredSchema = JSON.parse(ok('--disable-commands', 'messages.search', 'schema', '--json'))
+assert.equal(schemaPaths(filteredSchema).includes('messages search'), false)
+
+result = spawnSync('bun', ['scripts/generate-command-docs.ts'], { cwd: root, encoding: 'utf8' })
+assert.equal(result.status, 0, result.stderr)
+result = spawnSync('git', ['diff', '--quiet', '--', 'packages/cli/docs/commands'], { cwd: join(root, '..', '..'), encoding: 'utf8' })
+assert.equal(result.status, 0, 'generated command docs are out of date')
 
 const mcp = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
   cwd: root,
@@ -349,10 +475,22 @@ payload = JSON.parse(mcp.stdout)
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'targets_list'))
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'messages_search'))
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'contacts_list'))
-assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'api_request'))
+assert.ok(!payload.result.tools.some((tool: { name: string }) => tool.name === 'api_request'))
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'resolve_target'))
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'resolve_chat'))
 assert.ok(payload.result.tools.some((tool: { name: string }) => tool.name === 'messages_context'))
+
+const mcpAllowWrite = spawnSync('bun', ['./bin/dev.js', 'mcp', '--allow-write', '--list-tools'], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    BEEPER_CLI_CONFIG_DIR: configDir,
+  },
+})
+assert.equal(mcpAllowWrite.status, 0, mcpAllowWrite.stderr)
+payload = JSON.parse(mcpAllowWrite.stdout)
+assert.ok(payload.some((tool: { name: string }) => tool.name === 'api_request'))
 
 const mcpInitialize = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
   cwd: root,
@@ -380,8 +518,9 @@ const mcpCall = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
 assert.equal(mcpCall.status, 0, mcpCall.stderr)
 payload = JSON.parse(mcpCall.stdout)
 const mcpVersion = JSON.parse(payload.result.content[0].text)
-assert.match(mcpVersion.name, /beeper-cli/)
-assert.equal(mcpVersion.version, version.version)
+assert.equal(mcpVersion.exit_code, 0)
+assert.match(mcpVersion.stdout.name, /beeper-cli/)
+assert.equal(mcpVersion.stdout.version, version.version)
 
 const mcpEOFCall = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
   cwd: root,
@@ -395,7 +534,7 @@ const mcpEOFCall = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
 assert.equal(mcpEOFCall.status, 0, mcpEOFCall.stderr)
 payload = JSON.parse(mcpEOFCall.stdout)
 assert.equal(payload.id, 4)
-assert.equal(JSON.parse(payload.result.content[0].text).version, version.version)
+assert.equal(JSON.parse(payload.result.content[0].text).stdout.version, version.version)
 
 const mcpDryRunCall = spawnSync('bun', ['./bin/dev.js', '--dry-run', 'mcp'], {
   cwd: root,
@@ -409,9 +548,9 @@ const mcpDryRunCall = spawnSync('bun', ['./bin/dev.js', '--dry-run', 'mcp'], {
 assert.equal(mcpDryRunCall.status, 0, mcpDryRunCall.stderr)
 payload = JSON.parse(mcpDryRunCall.stdout)
 const mcpContext = JSON.parse(payload.result.content[0].text)
-assert.equal(mcpContext.dry_run, true)
-assert.equal(mcpContext.request.after, 3)
-assert.equal(mcpContext.request.before, 4)
+assert.equal(mcpContext.stdout.dry_run, true)
+assert.equal(mcpContext.stdout.request.after, 3)
+assert.equal(mcpContext.stdout.request.before, 4)
 
 const mcpInvalidJSON = spawnSync('bun', ['./bin/dev.js', 'mcp'], {
   cwd: root,
@@ -429,3 +568,13 @@ assert.equal(payload.error.code, -32000)
 assert.match(payload.error.message, /JSON/)
 
 rmSync(configDir, { recursive: true, force: true })
+
+function schemaPaths(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(schemaPaths)
+  if (!value || typeof value !== 'object') return []
+  const row = value as Record<string, unknown>
+  return [
+    typeof row.path === 'string' ? row.path : undefined,
+    ...Object.values(row).flatMap(schemaPaths),
+  ].filter((item): item is string => Boolean(item))
+}

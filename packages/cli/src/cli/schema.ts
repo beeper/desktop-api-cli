@@ -1,5 +1,6 @@
-import type { ArgSpec, CommandSpec, FlagSpec } from './types.js'
+import type { ArgSpec, CommandSpec, FlagSpec, GlobalFlags } from './types.js'
 import { globalFlagSpecs } from './parse.js'
+import { commandVisible } from './policy.js'
 
 type SchemaDoc = {
   build: string
@@ -8,9 +9,12 @@ type SchemaDoc = {
 }
 
 type SchemaNode = {
+  aliases?: string[][]
   flags?: SchemaFlag[]
   help: string
+  hidden?: boolean
   name: string
+  output?: string
   path: string
   positionals?: SchemaArg[]
   requirements?: string[]
@@ -20,12 +24,16 @@ type SchemaNode = {
 }
 
 type SchemaFlag = {
+  aliases?: string[]
   default?: boolean | number | string
+  envs?: string[]
   enum?: string[]
   help?: string
   multiple?: boolean
   name: string
+  placeholder?: string
   required?: boolean
+  short?: string
   type: string
 }
 
@@ -37,10 +45,11 @@ type SchemaArg = {
   variadic?: boolean
 }
 
-export function buildSchema(commands: CommandSpec[], version: string, requested: string[] = []): SchemaDoc {
+export function buildSchema(commands: CommandSpec[], version: string, requested: string[] = [], flags?: GlobalFlags): SchemaDoc {
+  const visible = commands.filter(command => flags ? commandVisible(command, flags) : !command.hidden)
   const filtered = requested.length
-    ? commands.filter(command => command.path.join('.').startsWith(requested.join('.')))
-    : commands
+    ? visible.filter(command => command.path.join('.').startsWith(requested.join('.')))
+    : visible
   return {
     build: version,
     command: nodeFor(filtered, requested, requested.length ? requested.at(-1) ?? 'beeper' : 'beeper'),
@@ -60,9 +69,12 @@ function nodeFor(commands: CommandSpec[], prefix: string[], name: string): Schem
     .map(child => nodeFor(commands.filter(command => command.path[prefix.length] === child), [...prefix, child], child))
 
   return {
+    aliases: exact?.aliases,
     flags: prefix.length === 0 ? schemaFlags(globalFlagSpecs) : schemaFlags(exact?.flags ?? []),
     help: exact?.description ?? 'Beeper CLI',
+    hidden: exact?.hidden || undefined,
     name,
+    output: exact?.output,
     path: prefix.join(' '),
     positionals: exact?.args?.map(schemaArg),
     requirements: exact ? requirements(exact) : undefined,
@@ -74,12 +86,16 @@ function nodeFor(commands: CommandSpec[], prefix: string[], name: string): Schem
 
 function schemaFlags(flags: FlagSpec[]): SchemaFlag[] {
   return flags.map(flag => ({
+    aliases: flag.aliases,
     default: flag.default,
+    envs: flag.env,
     enum: flag.enum,
     help: flag.description,
     multiple: flag.multiple,
     name: flag.name,
+    placeholder: flag.placeholder,
     required: flag.required,
+    short: flag.short,
     type: flag.type,
   }))
 }

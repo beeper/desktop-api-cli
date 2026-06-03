@@ -31,7 +31,7 @@ export type Target = {
 
 export type PublicTarget = Omit<Target, 'auth'> & { auth?: Pick<StoredAuth, 'source' | 'tokenType'> }
 
-type Config = {
+export type Config = {
   defaultTarget?: string
   defaultAccount?: string
 }
@@ -45,7 +45,7 @@ export function beeperDir(): string {
   return process.env.BEEPER_CLI_CONFIG_DIR ?? join(homedir(), '.beeper')
 }
 
-const configPath = () => join(beeperDir(), 'config.json')
+export const configPath = () => join(beeperDir(), 'config.json')
 const targetsDir = () => join(beeperDir(), 'targets')
 const profileDataDir = (type: ManagedTargetType, id: string) => join(beeperDir(), 'profiles', type, id)
 
