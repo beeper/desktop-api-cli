@@ -1,0 +1,19 @@
+name: readonly
+description: Read-only commands only. Mutating commands, setup writes, sends, deletes, installs, and auth writes are blocked.
+
+allow:
+  - version
+  - status
+  - schema
+  - mcp
+  - targets.list
+  - targets.logs
+  - accounts.list
+  - contacts.list
+  - chats.list
+  - chats.show
+  - messages.list
+  - messages.search
+  - messages.context
+  - resolve
+  - watch

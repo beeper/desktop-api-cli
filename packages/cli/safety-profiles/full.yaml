@@ -1,0 +1,5 @@
+name: full
+description: Full Beeper CLI surface.
+
+allow:
+  - all

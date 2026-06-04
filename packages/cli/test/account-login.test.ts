@@ -1,11 +1,8 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
-import { runGuidedAccountLogin, setWebViewConstructorForTest } from '../src/lib/account-login.js'
+import { describe, expect, it, mock } from 'bun:test'
+import { runGuidedAccountLogin } from '../src/lib/account-login.js'
 
 type Session = Parameters<typeof runGuidedAccountLogin>[2]
-
-afterEach(() => {
-  setWebViewConstructorForTest(undefined)
-})
+type SubmitStep = (stepID: string, body: unknown) => Promise<Session>
 
 describe('runGuidedAccountLogin', () => {
   it('submits display steps interactively and returns the completed session', async () => {
@@ -143,8 +140,6 @@ describe('runGuidedAccountLogin', () => {
       }
     }
 
-    setWebViewConstructorForTest(FakeWebView)
-
     const cookieStep = session({
       currentStep: {
         type: 'cookies',
@@ -165,6 +160,7 @@ describe('runGuidedAccountLogin', () => {
 
     const result = await runGuidedAccountLogin(fakeClient(submit), 'googlechat', cookieStep, {
       nonInteractive: true,
+      webViewConstructor: FakeWebView,
       webview: true,
       webviewBackend: 'chrome',
       webviewTimeoutMs: 100,
@@ -195,7 +191,7 @@ function session(overrides: Partial<Session> = {}): Session {
   } as Session
 }
 
-function fakeClient(submit: ReturnType<typeof mock>) {
+function fakeClient(submit: SubmitStep) {
   return {
     bridges: {
       loginSessions: {

@@ -1,28 +1,19 @@
-import { createInterface } from 'node:readline/promises'
-import { stdin as input, stdout as output } from 'node:process'
-import { getAccessToken, resolveTarget, updateTargetCache } from './targets.js'
-import type { LoginRegisterResponse, LoginResponseResponse } from '@beeper/desktop-api/resources/app/login'
-import type { ResetCreateResponse } from '@beeper/desktop-api/resources/app/login/verification/recovery-key/reset'
-
-export type AppLoginSuccess = LoginResponseResponse.Success | LoginRegisterResponse
-export type AppRegistrationRequired = LoginResponseResponse.RegistrationRequired
-export type AppLoginOutput = LoginResponseResponse | LoginRegisterResponse
-export type AppRecoveryCodeResetBeginResponse = ResetCreateResponse
-export type AppRequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+import { resolveTarget } from './targets.js'
 
 export async function appRequest<T>(
-  method: AppRequestMethod,
+  method: string,
   path: string,
   options: { baseURL?: string; body?: Record<string, unknown>; token?: string | false; target?: string } = {},
 ): Promise<T> {
   const target = await resolveTarget({ target: options.target, baseURL: options.baseURL })
-  const baseURL = target.baseURL
-  const token = options.token === false ? undefined : options.token ?? await getAccessToken(target)
+  const token = options.token === false
+    ? undefined
+    : options.token ?? process.env.BEEPER_ACCESS_TOKEN ?? target.auth?.accessToken
   const headers: Record<string, string> = {}
   if (token) headers.authorization = `Bearer ${token}`
   if (options.body) headers['content-type'] = 'application/json'
 
-  const response = await fetch(new URL(path, baseURL), {
+  const response = await fetch(new URL(path, target.baseURL), {
     method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
@@ -30,33 +21,5 @@ export async function appRequest<T>(
   if (!response.ok) throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`)
   if (response.status === 204) return undefined as T
   const text = await response.text()
-  const data = (text ? JSON.parse(text) : {}) as T
-  if (method === 'GET' && path === '/v1/app/setup') {
-    await updateTargetCache(target, { baseURL, appState: data }).catch(() => undefined)
-  }
-  return data
-}
-
-export async function promptText(label: string): Promise<string> {
-  const rl = createInterface({ input, output })
-  try {
-    const value = await rl.question(label)
-    return value.trim()
-  } finally {
-    rl.close()
-  }
-}
-
-export async function promptYesNo(label: string): Promise<boolean> {
-  const value = (await promptText(`${label} [y/N] `)).toLowerCase()
-  return value === 'y' || value === 'yes'
-}
-
-export async function promptYesNoDefaultYes(label: string): Promise<boolean> {
-  const value = (await promptText(`${label} [Y/n] `)).toLowerCase()
-  return value === '' || value === 'y' || value === 'yes'
-}
-
-export function isRegistrationRequired(output: AppLoginOutput): output is AppRegistrationRequired {
-  return 'registrationRequired' in output && output.registrationRequired === true
+  return (text ? JSON.parse(text) : {}) as T
 }

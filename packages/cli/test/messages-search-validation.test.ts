@@ -16,10 +16,9 @@ describe('messages search query-or-filter requirement', () => {
   it('rejects empty query with no filters and exits with usage error', () => {
     const result = run('messages', 'search', '--json')
     expect(result.status).toBe(2)
-    const envelope = JSON.parse(result.stderr)
-    expect(envelope.success).toBe(false)
-    expect(envelope.exitCode).toBe(2)
-    expect(envelope.error).toMatch(/Provide a search query or at least one filter flag/)
+    const payload = JSON.parse(result.stderr)
+    expect(payload.error.exitCode).toBe(2)
+    expect(payload.error.message).toMatch(/Provide a search query or at least one filter flag/)
   })
 
   it('accepts a bare query', () => {
@@ -31,6 +30,11 @@ describe('messages search query-or-filter requirement', () => {
   it('accepts no query when --sender is set (would fail at network but pass validation)', () => {
     // Use --help to avoid network: just confirms the flag is recognized.
     const result = run('messages', 'search', '--sender', 'me', '--help')
+    expect(result.status).toBe(0)
+  })
+
+  it('accepts the wacli-style --from alias and --has-media filter', () => {
+    const result = run('messages', 'search', '--from', 'me', '--has-media', '--help')
     expect(result.status).toBe(0)
   })
 })

@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { BeeperDesktop } from '@beeper/desktop-api'
+import { apiItems, apiRecord } from './api-values.js'
 import type { Readiness } from './app-state.js'
 import type { StoredAuth, Target } from './targets.js'
 
@@ -44,18 +45,18 @@ export async function findLocalDesktopSession(target?: Target): Promise<LocalDes
 }
 
 export function localDesktopReadiness(session: LocalDesktopSession): Readiness {
-  const secrets = recordValue(session.state.secrets)
+  const secrets = apiRecord(session.state.secrets)
   const e2ee = {
     initialized: booleanValue(session.state.initialized) ?? false,
     secretStorage: booleanValue(session.state.secret_storage) ?? false,
     crossSigning: booleanValue(session.state.cross_signing) ?? false,
     verified: booleanValue(session.state.verified) ?? false,
     secrets: {
-      masterKey: booleanValue(secrets?.master_key) ?? false,
-      selfSigningKey: booleanValue(secrets?.self_signing_key) ?? false,
-      userSigningKey: booleanValue(secrets?.user_signing_key) ?? false,
-      megolmBackupKey: booleanValue(secrets?.megolm_backup_key) ?? false,
-      recoveryKey: booleanValue(secrets?.recovery_code) ?? false,
+      masterKey: booleanValue(secrets.master_key) ?? false,
+      selfSigningKey: booleanValue(secrets.self_signing_key) ?? false,
+      userSigningKey: booleanValue(secrets.user_signing_key) ?? false,
+      megolmBackupKey: booleanValue(secrets.megolm_backup_key) ?? false,
+      recoveryKey: booleanValue(secrets.recovery_code) ?? false,
     },
     keyBackup: booleanValue(session.state.key_backup) ?? false,
     firstSyncDone: session.firstSyncDone ?? false,
@@ -95,9 +96,7 @@ export async function connectedAccountSummary(target: Target, auth?: StoredAuth)
   const token = auth?.accessToken ?? target.auth?.accessToken
   if (!token) return []
   const client = new BeeperDesktop({ baseURL: target.baseURL, accessToken: token })
-  const response = await client.accounts.list()
-  const rows = Array.isArray(response) ? response : ((response as { items?: unknown[] }).items ?? [])
-  return rows
+  return apiItems(await client.accounts.list())
     .map(item => accountName(item))
     .filter((name): name is string => Boolean(name))
     .slice(0, 8)
@@ -105,8 +104,7 @@ export async function connectedAccountSummary(target: Target, auth?: StoredAuth)
 
 export async function localConnectedAccountSummary(dataDir: string): Promise<string[]> {
   const bridgeAccounts = await readKeyValue(dataDir, 'bridgeAccounts').catch(() => undefined)
-  const rows = Array.isArray(bridgeAccounts) ? bridgeAccounts : []
-  const names = rows
+  const names = apiItems(bridgeAccounts)
     .map(item => accountName(item))
     .filter((name): name is string => Boolean(name))
   return [...new Set(names)].slice(0, 8)
@@ -151,16 +149,15 @@ async function readKeyValue(dataDir: string, key: string): Promise<unknown> {
 }
 
 function accountName(item: unknown): string | undefined {
-  if (!item || typeof item !== 'object') return undefined
-  const record = item as Record<string, unknown>
-  const bridge = record.bridge && typeof record.bridge === 'object' ? record.bridge as Record<string, unknown> : undefined
-  const network = record.network && typeof record.network === 'object' ? record.network as Record<string, unknown> : undefined
+  const record = apiRecord(item)
+  const bridge = apiRecord(record.bridge)
+  const network = apiRecord(record.network)
   return stringValue(record.network)
-    ?? stringValue(network?.displayName)
-    ?? stringValue(network?.name)
+    ?? stringValue(network.displayName)
+    ?? stringValue(network.name)
     ?? stringValue(record.displayName)
     ?? stringValue(record.name)
-    ?? stringValue(bridge?.type)
+    ?? stringValue(bridge.type)
     ?? stringValue(record.accountID)
     ?? stringValue(record.id)
 }
@@ -171,10 +168,6 @@ function stringValue(value: unknown): string | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
-}
-
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 function sqlString(value: string): string {

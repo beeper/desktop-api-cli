@@ -1,11 +1,11 @@
-import type { Target } from './targets.js'
+import type { ManagedTargetType, Target } from './targets.js'
 import { checkInstallationUpdate, readInstallations } from './installations.js'
 
-export type TargetLiveStatus = {
+type TargetLiveStatus = {
   reachable: boolean
   version?: string
   bundleID?: string
-  actualType?: 'desktop' | 'server'
+  actualType?: ManagedTargetType
   error?: string
   update?: {
     available: boolean
@@ -14,7 +14,7 @@ export type TargetLiveStatus = {
   }
 }
 
-export async function targetLiveStatus(target: Pick<Target, 'type' | 'baseURL' | 'managed'>): Promise<TargetLiveStatus> {
+export async function targetLiveStatus(target: Pick<Target, 'type' | 'baseURL' | 'dataDir'>): Promise<TargetLiveStatus> {
   try {
     const response = await fetch(new URL('/v1/info', target.baseURL), { signal: AbortSignal.timeout(3000) })
     if (!response.ok) return { reachable: false, error: `${response.status} ${response.statusText}` }
@@ -36,8 +36,8 @@ export async function targetLiveStatus(target: Pick<Target, 'type' | 'baseURL' |
       }
     }
 
-    const installations = await readInstallations()
-    const installation = target.type === 'server' ? installations.server : installations.desktop
+    const installations = target.type === 'remote' ? undefined : await readInstallations()
+    const installation = target.type === 'server' ? installations?.server : target.type === 'desktop' ? installations?.desktop : undefined
     const update = installation
       ? await checkInstallationUpdate({ ...installation, version: version ?? installation.version }).catch(() => undefined)
       : undefined
@@ -49,7 +49,9 @@ export async function targetLiveStatus(target: Pick<Target, 'type' | 'baseURL' |
       update: update ? {
         available: update.available,
         latestVersion: update.latestVersion,
-        action: target.type === 'desktop' ? 'Update Beeper Desktop in the app.' : update.action,
+        action: target.type === 'desktop'
+          ? 'Update Beeper Desktop in the app.'
+          : update.available ? 'Run: beeper install server' : 'Beeper Server is up to date.',
       } : undefined,
     }
   } catch {
@@ -59,13 +61,13 @@ export async function targetLiveStatus(target: Pick<Target, 'type' | 'baseURL' |
 
 function typeFromInfo(
   info: { app?: { bundle_id?: string }; server?: { hostname?: string; remote_access?: boolean } },
-  target: Pick<Target, 'type' | 'managed'>,
-): 'desktop' | 'server' | undefined {
-  if (target.type === 'server' && target.managed && info.server?.hostname === '127.0.0.1' && info.server.remote_access === false) return 'server'
+  target: Pick<Target, 'type' | 'dataDir'>,
+): ManagedTargetType | undefined {
+  if (target.type === 'server' && target.dataDir && info.server?.hostname === '127.0.0.1' && info.server.remote_access === false) return 'server'
   return typeFromBundleID(info.app?.bundle_id)
 }
 
-function typeFromBundleID(bundleID?: string): 'desktop' | 'server' | undefined {
+function typeFromBundleID(bundleID?: string): ManagedTargetType | undefined {
   if (!bundleID) return undefined
   if (bundleID.includes('.server')) return 'server'
   if (bundleID.includes('.desktop')) return 'desktop'

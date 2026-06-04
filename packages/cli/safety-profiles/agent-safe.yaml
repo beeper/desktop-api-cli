@@ -1,0 +1,23 @@
+name: agent-safe
+description: Agent workflow profile. Allows reads, setup inspection, target runtime control, default selection, and email auth.
+
+allow:
+  - version
+  - status
+  - schema
+  - mcp
+  - setup
+  - use
+  - targets.list
+  - targets.logs
+  - targets.runtime
+  - auth.email
+  - accounts.list
+  - contacts.list
+  - chats.list
+  - chats.show
+  - messages.list
+  - messages.search
+  - messages.context
+  - resolve
+  - watch

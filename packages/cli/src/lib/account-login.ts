@@ -1,18 +1,20 @@
-import { createInterface } from 'node:readline/promises'
 import { execFileSync } from 'node:child_process'
 import { stdin as input, stderr as output } from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import QRCode from 'qrcode'
 import type { LoginSession } from '@beeper/desktop-api/resources/bridges.js'
 import type { BeeperDesktop } from '@beeper/desktop-api'
+import { promptText } from './prompts.js'
 
-export type AccountLoginStep = LoginSession
+type AccountLoginStep = LoginSession
 
-export type AccountLoginOptions = {
+type AccountLoginOptions = {
   cookies?: Record<string, string>
   fields?: Record<string, string>
   nonInteractive?: boolean
   webview?: boolean
   webviewBackend?: 'auto' | 'chrome' | 'webkit'
+  webViewConstructor?: WebViewConstructor
   webviewTimeoutMs?: number
 }
 
@@ -78,11 +80,11 @@ export async function runGuidedAccountLogin(client: BeeperDesktop, bridgeID: str
             continue
           }
 
-          throw new Error(`Missing required field ${field.id}. Pass --field ${field.id}=... or run without --non-interactive.`)
+          throw new Error(`Missing required field ${field.id}. Pass --field ${field.id}=... or run without --no-input.`)
         }
 
         const fallback = field.initialValue ? ` [${field.initialValue}]` : ''
-        const value = await promptText(`${field.label ?? field.id}${fallback}: `)
+        const value = await promptText(`${field.label ?? field.id}${fallback}: `, output)
         fields[field.id] = value || field.initialValue || ''
       }
       session = await client.bridges.loginSessions.steps.submit(step.stepID, { bridgeID, loginSessionID: session.loginSessionID, type: 'user_input', fields })
@@ -111,7 +113,7 @@ export async function runGuidedAccountLogin(client: BeeperDesktop, bridgeID: str
           continue
         }
 
-        if (options.nonInteractive) throw new Error(`Missing required cookie ${id}. Pass --cookie ${id}=... or run without --non-interactive.`)
+        if (options.nonInteractive) throw new Error(`Missing required cookie ${id}. Pass --cookie ${id}=... or run without --no-input.`)
         fields[id] = await promptSecret(`${id}: `)
       }
       session = await client.bridges.loginSessions.steps.submit(step.stepID, { bridgeID, loginSessionID: session.loginSessionID, type: 'cookies', fields, source: usedWebView ? 'webview' : 'api' })
@@ -166,15 +168,10 @@ type WebViewConstructor = new (options?: Record<string, unknown>) => {
 }
 
 const EXTRACT_JS_KEY = '__BEEP_BEEP_AUTH_RESULTS__'
-let webViewConstructorOverride: WebViewConstructor | undefined
-
-export function setWebViewConstructorForTest(constructor: WebViewConstructor | undefined): void {
-  webViewConstructorOverride = constructor
-}
 
 async function collectCookieFieldsWithWebView(step: CookieLoginStep, options: AccountLoginOptions): Promise<Record<string, string>> {
   const BunRuntime = (globalThis as { Bun?: { WebView?: WebViewConstructor } }).Bun
-  const WebView = webViewConstructorOverride ?? BunRuntime?.WebView
+  const WebView = options.webViewConstructor ?? BunRuntime?.WebView
   if (!WebView) throw new Error('Bun.WebView is not available in this Bun runtime.')
 
   const backend = options.webviewBackend && options.webviewBackend !== 'auto' ? options.webviewBackend : undefined
@@ -341,17 +338,10 @@ async function collectSpecialFields(view: InstanceType<WebViewConstructor>, fiel
 function normalizeCookieFields(fields: CookieLoginStep['fields']): NormalizedCookieField[] {
   return fields.map(field => {
     const rich = field as CookieField
-    const sources = rich.sources?.length ? rich.sources : legacySourcesForField(rich)
+    const sources = rich.sources ?? []
     const required = rich.required ?? true
     return { ...rich, sources, required }
   })
-}
-
-function legacySourcesForField(field: CookieField): CookieFieldSource[] {
-  const name = field.name ?? field.id
-  if (field.type === 'header') return [{ type: 'request_header', name }]
-  if (field.type === 'local_storage') return [{ type: 'local_storage', name }]
-  return [{ type: 'cookie', name }]
 }
 
 function matchesCookieDomain(actual: string, expected: string): boolean {
@@ -378,24 +368,11 @@ function stringRecord(value: unknown): Record<string, string> {
   return out
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, ms))
-}
-
-async function promptText(label: string): Promise<string> {
-  const rl = createInterface({ input, output })
-  try {
-    return (await rl.question(label)).trim()
-  } finally {
-    rl.close()
-  }
-}
-
 async function promptSecret(label: string): Promise<string> {
-  if (!input.isTTY) return promptText(label)
+  if (!input.isTTY) return promptText(label, output)
   try {
     execFileSync('stty', ['-echo'], { stdio: ['inherit', 'ignore', 'ignore'] })
-    return await promptText(label)
+    return await promptText(label, output)
   } finally {
     execFileSync('stty', ['echo'], { stdio: ['inherit', 'ignore', 'ignore'] })
     output.write('\n')

@@ -1,8 +1,8 @@
-import { readConfig } from './targets.js'
-import { authRequired, notReady } from './errors.js'
-import { loginWithPKCE } from './oauth.js'
+import { AbortError, ExitCodes } from './errors.js'
+import { loginWithPKCE, type TokenResponse } from './oauth.js'
+import { defaultDesktopBaseURL, defaultDesktopPort, type AuthSource, type StoredAuth } from './targets.js'
 
-export type DesktopAppStatus = {
+type DesktopAppStatus = {
   state?: string
 }
 
@@ -11,12 +11,10 @@ type DesktopProbe = {
   status?: DesktopAppStatus
 }
 
-const defaultPort = 23_373
-const scanPorts = Array.from({ length: 20 }, (_, index) => defaultPort + index)
+const scanPorts = Array.from({ length: 20 }, (_, index) => defaultDesktopPort + index)
 
 export async function findLocalDesktop(options: { baseURL?: string; scan?: boolean; timeoutMs?: number } = {}): Promise<DesktopProbe> {
-  const config = await readConfig()
-  const preferred = options.baseURL ?? config.baseURL ?? 'http://127.0.0.1:23373'
+  const preferred = options.baseURL ?? defaultDesktopBaseURL
   const candidates = candidateBaseURLs(preferred, options.scan ?? true)
   const timeoutMs = options.timeoutMs ?? 500
 
@@ -34,34 +32,43 @@ export async function findLocalDesktop(options: { baseURL?: string; scan?: boole
     } catch { /* fall through */ }
   }
 
-  throw notReady(`Could not find a running Beeper Desktop API on ${candidates.join(', ')}.`)
+  throw new AbortError(`Could not find a running Beeper Desktop API on ${candidates.join(', ')}.`, ExitCodes.NotReady, undefined, 'not_ready')
 }
 
-export async function ensureDesktopToken(options: {
+type AuthorizedTargetToken = TokenResponse & { clientID: string }
+
+export async function authorizeTarget(options: {
   baseURL?: string
   clientName?: string
   openBrowser?: boolean
-  save?: boolean
   scan?: boolean
   scope?: string
-} = {}): Promise<string> {
+} = {}): Promise<AuthorizedTargetToken> {
   const desktop = await findLocalDesktop({ baseURL: options.baseURL, scan: options.scan })
   if (desktop.status?.state === 'needs-login') {
-    throw authRequired('Beeper Desktop is not signed in. Open Beeper Desktop and sign in, then rerun this command.')
+    throw new AbortError('Beeper Desktop is not signed in. Open Beeper Desktop and sign in, then rerun this command.', ExitCodes.AuthRequired, undefined, 'auth_required')
   }
 
-  const token = await loginWithPKCE({
+  return loginWithPKCE({
     baseURL: desktop.baseURL,
     clientName: options.clientName ?? 'Beeper CLI',
     openBrowser: options.openBrowser ?? true,
-    save: options.save ?? true,
     scope: options.scope ?? 'read write',
-    source: 'desktop-oauth',
   })
-  return token.access_token
 }
 
-export async function getDesktopAppStatus(baseURL: string): Promise<DesktopAppStatus | undefined> {
+export function authFromToken(token: AuthorizedTargetToken, source: AuthSource): StoredAuth {
+  return {
+    accessToken: token.access_token,
+    clientID: token.clientID,
+    expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : undefined,
+    scope: token.scope,
+    source,
+    tokenType: token.token_type,
+  }
+}
+
+async function getDesktopAppStatus(baseURL: string): Promise<DesktopAppStatus | undefined> {
   const response = await fetchWithTimeout(new URL('/v1/app/setup', baseURL), {}, 2_000)
   if (response.status === 401 || response.status === 403 || response.status === 404) return undefined
   if (!response.ok) throw new Error(`GET /v1/app/setup failed: ${response.status} ${await response.text()}`)

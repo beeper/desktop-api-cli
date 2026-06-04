@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-
-set -e
-
-cd "$(dirname "$0")/.."
-
-echo "==> Unlinking Beeper CLI"
-bun unlink -g beeper-cli || true
