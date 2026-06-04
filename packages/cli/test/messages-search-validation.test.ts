@@ -32,4 +32,9 @@ describe('messages search query-or-filter requirement', () => {
     const result = run('messages', 'search', '--sender', 'me', '--help')
     expect(result.status).toBe(0)
   })
+
+  it('accepts the wacli-style --from alias and --has-media filter', () => {
+    const result = run('messages', 'search', '--from', 'me', '--has-media', '--help')
+    expect(result.status).toBe(0)
+  })
 })

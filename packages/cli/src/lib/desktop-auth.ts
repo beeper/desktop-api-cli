@@ -32,7 +32,7 @@ export async function findLocalDesktop(options: { baseURL?: string; scan?: boole
     } catch { /* fall through */ }
   }
 
-  throw new AbortError(`Could not find a running Beeper Desktop API on ${candidates.join(', ')}.`, ExitCodes.NotReady)
+  throw new AbortError(`Could not find a running Beeper Desktop API on ${candidates.join(', ')}.`, ExitCodes.NotReady, undefined, 'not_ready')
 }
 
 type AuthorizedTargetToken = TokenResponse & { clientID: string }
@@ -46,7 +46,7 @@ export async function authorizeTarget(options: {
 } = {}): Promise<AuthorizedTargetToken> {
   const desktop = await findLocalDesktop({ baseURL: options.baseURL, scan: options.scan })
   if (desktop.status?.state === 'needs-login') {
-    throw new AbortError('Beeper Desktop is not signed in. Open Beeper Desktop and sign in, then rerun this command.', ExitCodes.AuthRequired)
+    throw new AbortError('Beeper Desktop is not signed in. Open Beeper Desktop and sign in, then rerun this command.', ExitCodes.AuthRequired, undefined, 'auth_required')
   }
 
   return loginWithPKCE({

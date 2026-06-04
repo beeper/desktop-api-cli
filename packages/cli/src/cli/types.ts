@@ -15,6 +15,7 @@ export type FlagSpec = {
 export type ArgSpec = {
   name: string
   description?: string
+  enum?: string[]
   required?: boolean
   variadic?: boolean
 }
@@ -36,8 +37,9 @@ export type CommandSpec = {
   flags?: FlagSpec[]
   hidden?: boolean
   mcp?: boolean
-  output?: 'accounts' | 'chats' | 'contacts' | 'diagnostic' | 'generic' | 'messages' | 'status' | 'targets'
+  output?: 'accounts' | 'auth' | 'chats' | 'contacts' | 'diagnostic' | 'generic' | 'messages' | 'status' | 'targets'
   path: string[]
+  rawJson?: boolean
   risk: CommandRisk
   run(ctx: CommandContext): Promise<unknown>
 }
@@ -56,6 +58,7 @@ export type GlobalFlags = {
   full: boolean
   home?: string
   json: boolean
+  lockWait?: string
   noInput: boolean
   plain: boolean
   readOnly: boolean

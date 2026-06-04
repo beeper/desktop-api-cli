@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { stdout as output } from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
@@ -44,7 +44,7 @@ import {
   startProfile,
   stopProfile,
 } from '../lib/profiles.js'
-import type { CommandContext, CommandSpec, FlagSpec, GlobalFlags } from './types.js'
+import type { ArgSpec, CommandContext, CommandSpec, FlagSpec, GlobalFlags } from './types.js'
 import { globalFlagSpecs, numberFlag, requiredStringFlag, stringFlag, stringListFlag } from './parse.js'
 import { commandVisible } from './policy.js'
 import { buildSchema } from './schema.js'
@@ -52,7 +52,7 @@ import { serveMcp } from './mcp.js'
 import { usage, writeEvent, writeResult } from './output.js'
 import { runSetup } from './setup.js'
 
-type WebhookConfig = { inflight: number; max: number; queue: Array<{ body: string; signature?: string }>; secret?: string; url: string }
+type WebhookConfig = { inflight: number; max: number; queue: Array<{ body: string; secret?: string }>; secret?: string; url: string }
 type EventFilter = { include?: Set<string>; exclude?: Set<string> }
 type AttachmentType = 'sticker' | 'voice-note'
 type SendKind = 'file' | 'sticker' | 'text' | 'voice'
@@ -61,10 +61,15 @@ type SendPayload = {
   duration?: number
   file?: string
   fileName?: string
+  forwardedUpload?: Record<string, unknown>
   mentions?: string[]
   mimeType?: string
   noPreview?: boolean
+  ephemeral?: boolean
+  ephemeralDuration?: string
+  messageExpirySeconds?: number
   replyTo?: string
+  replyToSender?: string
   text: string
   wait?: boolean
   waitTimeoutMs?: number
@@ -72,7 +77,9 @@ type SendPayload = {
 
 const accountFilterFlag: FlagSpec = { name: 'account', short: 'a', aliases: ['acct'], type: 'string', multiple: true, description: 'Limit to account selector' }
 const candidateLimitFlag: FlagSpec = { name: 'limit', aliases: ['max'], type: 'integer', default: 10, description: 'Maximum candidates' }
-const chatFlag: FlagSpec = { name: 'chat', type: 'string', required: true, description: 'Chat selector' }
+const chatArg: ArgSpec = { name: 'chat', description: 'Chat selector. Used when --chat is omitted.' }
+const chatFlag: FlagSpec = { name: 'chat', aliases: ['jid'], type: 'string', required: true, description: 'Chat selector' }
+const optionalChatFlag: FlagSpec = { ...chatFlag, required: false }
 const pickCandidateFlag: FlagSpec = { name: 'pick', type: 'integer', description: 'Select the Nth candidate' }
 const pickChatFlag: FlagSpec = { name: 'pick', type: 'integer', description: 'Pick the Nth result when selector is ambiguous' }
 const configKeys = ['defaultTarget', 'defaultAccount'] as const
@@ -82,28 +89,67 @@ const chatFlags: FlagSpec[] = [
   chatFlag,
   pickChatFlag,
 ]
+const optionalChatFlags: FlagSpec[] = [
+  optionalChatFlag,
+  pickChatFlag,
+]
 
 const installFlags: FlagSpec[] = [
   { name: 'channel', type: 'string', enum: ['stable', 'nightly'], default: 'stable', description: 'Install release channel' },
   { name: 'server-env', type: 'string', enum: ['local', 'dev', 'staging', 'prod'], default: 'prod', description: 'Server environment' },
 ]
 
+const setupCommandFlags: FlagSpec[] = [
+  { name: 'local', type: 'boolean', default: false, description: 'Use the local Beeper Desktop session on this device' },
+  { name: 'oauth', type: 'boolean', default: false, description: 'Authorize the target with browser OAuth/PKCE' },
+  { name: 'remote', type: 'string', description: 'Connect to a remote Beeper Desktop or Server URL' },
+  { name: 'server', type: 'boolean', default: false, description: 'Set up a local Beeper Server target' },
+  { name: 'desktop', type: 'boolean', default: false, description: 'Set up a local Beeper Desktop target' },
+  { name: 'install', type: 'boolean', default: false, description: 'Allow installing a missing local runtime' },
+  ...installFlags,
+  { name: 'email', type: 'string', description: 'Sign in with an email address' },
+  { name: 'username', type: 'string', description: 'Username to use if setup creates a new account' },
+]
+
 const sendChatFlags: FlagSpec[] = [
-  { name: 'to', type: 'string', required: true, description: 'Chat selector' },
+  { name: 'to', type: 'string', description: 'Chat selector' },
   pickChatFlag,
 ]
 
 const sendDeliveryFlags: FlagSpec[] = [
   ...sendChatFlags,
   { name: 'reply-to', type: 'string', description: 'Send as a reply to this message ID' },
+  { name: 'reply-to-sender', type: 'string', description: 'Accepted for compatibility; Beeper replies only need --reply-to' },
   { name: 'wait', type: 'boolean', default: false, description: 'Wait until the message leaves pending state' },
   { name: 'wait-timeout', type: 'integer', default: 30_000, description: 'Maximum wait time in ms when --wait is set' },
+  { name: 'post-send-wait', type: 'string', description: 'Compatibility alias for waiting after send, for example 2s or 500ms; 0 disables waiting' },
 ]
+
+const presenceFlags: FlagSpec[] = [
+  ...sendChatFlags,
+  { name: 'duration', type: 'integer', description: 'Seconds to keep typing before sending paused' },
+  { name: 'state', type: 'string', enum: ['typing', 'paused'], default: 'typing', description: 'Presence indicator to send' },
+]
+
+function messageListFlags(limitDefault = 50, limitDescription = 'Maximum messages to print'): FlagSpec[] {
+  return [
+    { name: 'after-cursor', aliases: ['after'], type: 'string', description: 'Paginate messages newer than this message ID' },
+    { name: 'asc', type: 'boolean', default: false, description: 'Order oldest first' },
+    { name: 'before-cursor', aliases: ['before'], type: 'string', description: 'Paginate messages older than this message ID' },
+    chatFlag,
+    { name: 'limit', type: 'integer', default: limitDefault, description: limitDescription },
+    pickChatFlag,
+    { name: 'sender', type: 'string', description: 'me, others, or a specific user ID' },
+    { name: 'from-me', type: 'boolean', default: false, description: 'Only messages sent by me' },
+    { name: 'from-them', type: 'boolean', default: false, description: 'Only messages sent by others' },
+    { name: 'type', type: 'string', enum: ['text', 'image', 'video', 'audio', 'document', 'file', 'link'], description: 'Only messages of this kind' },
+    { name: 'has-media', type: 'boolean', default: false, description: 'Only messages with media' },
+  ]
+}
 
 export const commands: CommandSpec[] = [
   {
-    description: 'Print CLI version',
-    mcp: true,
+    description: 'Print version',
     output: 'diagnostic',
     path: ['version'],
     risk: 'read',
@@ -112,7 +158,7 @@ export const commands: CommandSpec[] = [
   {
     args: [{ name: 'target', description: 'Target name. Defaults to the selected target.' }],
     aliases: [['st']],
-    description: 'Show selected target and setup readiness',
+    description: 'Show auth, config, selected target, and setup readiness',
     mcp: true,
     output: 'status',
     path: ['status'],
@@ -120,36 +166,79 @@ export const commands: CommandSpec[] = [
     run: status,
   },
   {
-    description: 'Run diagnostics for config, target reachability, auth, and readiness',
+    aliases: [['whoami'], ['who-am-i']],
+    description: 'Show selected account and target identity',
+    flags: [accountFilterFlag],
     mcp: true,
+    path: ['me'],
+    risk: 'read',
+    run: me,
+  },
+  {
+    aliases: [['auth', 'doctor']],
+    description: 'Run diagnostics for config, target reachability, auth, and readiness',
+    flags: [{ name: 'connect', type: 'boolean', default: false, description: 'Accepted for compatibility; doctor always checks selected target reachability' }],
     output: 'diagnostic',
     path: ['doctor'],
     risk: 'read',
     run: doctor,
   },
   {
-    aliases: [['agent', 'exit-codes'], ['exitcodes']],
+    description: 'Agent-friendly helpers',
+    output: 'diagnostic',
+    path: ['agent'],
+    risk: 'read',
+    run: agent,
+  },
+  {
+    aliases: [['agent', 'exit-codes'], ['agent', 'exitcodes'], ['agent', 'exit-code'], ['exitcodes']],
     description: 'Print stable exit codes for automation',
-    mcp: true,
     output: 'diagnostic',
     path: ['exit-codes'],
+    rawJson: true,
     risk: 'read',
     run: exitCodes,
   },
   {
-    args: [{ name: 'command', variadic: true }],
+    aliases: [['help-docs']],
+    description: 'Print command documentation locations',
+    flags: [{ name: 'url', aliases: ['url-only'], type: 'boolean', default: false, description: 'Print only the documentation URL' }],
+    output: 'diagnostic',
+    path: ['docs'],
+    risk: 'read',
+    run: docs,
+  },
+  {
+    args: [{ name: 'command', variadic: true, description: 'Command path to describe' }],
+    description: 'Show help for a command',
+    path: ['help'],
+    risk: 'read',
+    run: helpCommand,
+  },
+  {
+    args: [{ name: 'command', variadic: true, description: 'Optional command path to describe. Default: entire CLI' }],
     aliases: [['help-json'], ['helpjson']],
-    description: 'Print machine-readable command and flag schema',
-    mcp: true,
+    description: 'Machine-readable command/flag schema',
+    flags: [{ name: 'include-hidden', type: 'boolean', default: false, description: 'Include hidden commands' }],
     path: ['schema'],
+    rawJson: true,
     risk: 'read',
     run: schema,
   },
   {
-    description: 'Run a typed MCP stdio server',
+    description: 'Run a typed, allowlisted MCP server over stdio or HTTP',
+    examples: [
+      'beeper mcp',
+      'beeper mcp --allow-tool targets.*,messages --list-tools',
+      'beeper mcp --allow-write --allow-tool send_text',
+    ],
     flags: [
-      { name: 'allow-tool', aliases: ['tool'], type: 'string', multiple: true, description: 'Tool or command allowlist' },
+      { name: 'allow-tool', aliases: ['tool'], type: 'string', multiple: true, placeholder: 'ALLOW-TOOL,...', description: 'Tool or service allowlist (default: all read-only tools). Examples: targets.*,messages_search,send' },
       { name: 'allow-write', type: 'boolean', default: false, description: 'Allow write-risk MCP tools' },
+      { name: 'transport', type: 'string', enum: ['stdio', 'http'], default: 'stdio', description: 'MCP transport' },
+      { name: 'http-host', type: 'string', default: '127.0.0.1', description: 'Host for --transport=http' },
+      { name: 'http-port', type: 'integer', default: 7331, description: 'Port for --transport=http. Use 0 to choose a free port' },
+      { name: 'http-path', type: 'string', default: '/mcp', description: 'HTTP path for --transport=http' },
       { name: 'list-tools', type: 'boolean', default: false, description: 'Print enabled MCP tools as JSON and exit' },
       { name: 'max-output-bytes', type: 'integer', default: 102400, description: 'Maximum stdout/stderr bytes captured per tool call' },
       { name: 'timeout-seconds', type: 'integer', default: 60, description: 'Per-tool subprocess timeout' },
@@ -159,7 +248,7 @@ export const commands: CommandSpec[] = [
     run: mcp,
   },
   {
-    args: [{ name: 'shell', required: true, description: 'bash, zsh, fish, or powershell' }],
+    args: [{ name: 'shell', required: true, enum: ['bash', 'fish', 'powershell', 'zsh'], description: 'Shell (bash|zsh|fish|powershell)' }],
     description: 'Generate shell completion scripts',
     hidden: false,
     path: ['completion'],
@@ -167,10 +256,38 @@ export const commands: CommandSpec[] = [
     run: completion,
   },
   {
+    description: 'Generate the autocompletion script for bash',
+    flags: [{ name: 'no-descriptions', type: 'boolean', default: false, description: 'Accepted for compatibility; completion descriptions are not emitted' }],
+    path: ['completion', 'bash'],
+    risk: 'read',
+    run: completionShell,
+  },
+  {
+    description: 'Generate the autocompletion script for fish',
+    flags: [{ name: 'no-descriptions', type: 'boolean', default: false, description: 'Accepted for compatibility; completion descriptions are not emitted' }],
+    path: ['completion', 'fish'],
+    risk: 'read',
+    run: completionShell,
+  },
+  {
+    aliases: [['completion', 'pwsh']],
+    description: 'Generate the autocompletion script for powershell',
+    flags: [{ name: 'no-descriptions', type: 'boolean', default: false, description: 'Accepted for compatibility; completion descriptions are not emitted' }],
+    path: ['completion', 'powershell'],
+    risk: 'read',
+    run: completionShell,
+  },
+  {
+    description: 'Generate the autocompletion script for zsh',
+    flags: [{ name: 'no-descriptions', type: 'boolean', default: false, description: 'Accepted for compatibility; completion descriptions are not emitted' }],
+    path: ['completion', 'zsh'],
+    risk: 'read',
+    run: completionShell,
+  },
+  {
     aliases: [['config', 'show']],
     args: [{ name: 'key', required: true, description: 'Config key to get' }],
     description: 'Get a config value',
-    mcp: true,
     output: 'diagnostic',
     path: ['config', 'get'],
     risk: 'read',
@@ -179,7 +296,6 @@ export const commands: CommandSpec[] = [
   {
     aliases: [['config', 'list-keys'], ['config', 'names']],
     description: 'List available config keys',
-    mcp: true,
     path: ['config', 'keys'],
     risk: 'read',
     run: configKeysCommand,
@@ -187,7 +303,6 @@ export const commands: CommandSpec[] = [
   {
     aliases: [['config', 'ls'], ['config', 'all']],
     description: 'List all config values',
-    mcp: true,
     output: 'diagnostic',
     path: ['config', 'list'],
     risk: 'read',
@@ -196,7 +311,6 @@ export const commands: CommandSpec[] = [
   {
     aliases: [['config', 'where']],
     description: 'Print config file path',
-    mcp: true,
     output: 'diagnostic',
     path: ['config', 'path'],
     risk: 'read',
@@ -235,23 +349,13 @@ export const commands: CommandSpec[] = [
   {
     description: 'Make the selected target ready for messaging',
     examples: ['beeper setup', 'beeper setup --local', 'beeper setup --remote https://desktop.example.com', 'beeper setup --desktop --install'],
-    flags: [
-      { name: 'local', type: 'boolean', default: false, description: 'Use the local Beeper Desktop session on this device' },
-      { name: 'oauth', type: 'boolean', default: false, description: 'Authorize the target with browser OAuth/PKCE' },
-      { name: 'remote', type: 'string', description: 'Connect to a remote Beeper Desktop or Server URL' },
-      { name: 'server', type: 'boolean', default: false, description: 'Set up a local Beeper Server target' },
-      { name: 'desktop', type: 'boolean', default: false, description: 'Set up a local Beeper Desktop target' },
-      { name: 'install', type: 'boolean', default: false, description: 'Allow installing a missing local runtime' },
-      ...installFlags,
-      { name: 'email', type: 'string', description: 'Sign in with an email address' },
-      { name: 'username', type: 'string', description: 'Username to use if setup creates a new account' },
-    ],
+    flags: setupCommandFlags,
     path: ['setup'],
     risk: 'write',
     run: runSetup,
   },
   {
-    aliases: [['targets', 'ls']],
+    aliases: [['targets', 'ls'], ['target', 'list'], ['target', 'ls']],
     description: 'List configured Beeper targets',
     mcp: true,
     output: 'targets',
@@ -260,9 +364,13 @@ export const commands: CommandSpec[] = [
     run: targetsList,
   },
   {
-    args: [{ name: 'name', required: true }, { name: 'url', required: true }],
+    args: [
+      { name: 'name', required: true, description: 'Target name' },
+      { name: 'url', required: true, description: 'Target base URL' },
+    ],
     description: 'Add a remote Beeper Desktop or Server target',
     flags: [{ name: 'default', type: 'boolean', default: false, description: 'Set this target as the default after creation' }],
+    aliases: [['target', 'add']],
     path: ['targets', 'add'],
     risk: 'write',
     run: targetsAdd,
@@ -277,6 +385,7 @@ export const commands: CommandSpec[] = [
       { name: 'timeout', type: 'string', description: 'Startup timeout, for example 40s or 60000ms' },
       { name: 'url-only', type: 'boolean', default: false, description: 'Print only the public tunnel URL' },
     ],
+    aliases: [['target', 'tunnel']],
     path: ['targets', 'tunnel'],
     risk: 'write',
     run: targetsTunnel,
@@ -296,10 +405,53 @@ export const commands: CommandSpec[] = [
     run: installCommand,
   },
   {
+    args: [{ name: 'target', description: 'Target name. Defaults to the selected target.' }],
     description: 'Clear stored authentication',
+    aliases: [['logout'], ['auth', 'remove'], ['auth', 'rm'], ['auth', 'del']],
     path: ['auth', 'logout'],
     risk: 'write',
     run: authLogout,
+  },
+  {
+    aliases: [['auth', 'ls']],
+    description: 'List stored target credentials',
+    output: 'auth',
+    path: ['auth', 'list'],
+    risk: 'read',
+    run: authList,
+  },
+  {
+    args: [{ name: 'target', description: 'Target name. Defaults to the selected target.' }],
+    description: 'Show auth configuration and stored target credential status',
+    output: 'diagnostic',
+    path: ['auth', 'status'],
+    risk: 'read',
+    run: authStatus,
+  },
+  {
+    aliases: [['auth', 'bridges']],
+    description: 'List supported account login services and bridges',
+    flags: [{ name: 'markdown', type: 'boolean', default: false, description: 'Output a Markdown table' }],
+    path: ['auth', 'services'],
+    risk: 'read',
+    run: authServices,
+  },
+  {
+    aliases: [['auth', 'setup'], ['auth', 'connect']],
+    description: 'Make the selected target ready for messaging',
+    examples: ['beeper auth manage', 'beeper auth manage --local', 'beeper auth manage --oauth'],
+    flags: setupCommandFlags,
+    path: ['auth', 'manage'],
+    risk: 'write',
+    run: runSetup,
+  },
+  {
+    args: [{ name: 'email', required: true, description: 'Email address' }],
+    aliases: [['auth', 'add'], ['auth', 'login']],
+    description: 'Start email sign-in for a target',
+    path: ['login'],
+    risk: 'write',
+    run: login,
   },
   {
     description: 'Start email sign-in for a target',
@@ -320,6 +472,7 @@ export const commands: CommandSpec[] = [
     run: authEmailResponse,
   },
   {
+    aliases: [['accounts', 'ls'], ['account', 'list'], ['account', 'ls']],
     description: 'List connected accounts',
     flags: [
       accountFilterFlag,
@@ -332,23 +485,33 @@ export const commands: CommandSpec[] = [
     run: accountsList,
   },
   {
+    args: [{ name: 'selector', required: true, description: 'Account selector' }],
+    aliases: [['accounts', 'get'], ['accounts', 'info'], ['account', 'show'], ['account', 'get'], ['account', 'info']],
+    description: 'Show one connected account',
+    mcp: true,
+    output: 'accounts',
+    path: ['accounts', 'show'],
+    risk: 'read',
+    run: accountsShow,
+  },
+  {
     args: [{ name: 'selector', required: true, description: 'Target name' }],
-    aliases: [['targets', 'use']],
+    aliases: [['use', 'target'], ['target', 'use']],
     description: 'Select the default target',
-    path: ['use', 'target'],
+    path: ['targets', 'use'],
     risk: 'write',
     run: useTarget,
   },
   {
     args: [{ name: 'selector', required: true, description: 'Account selector' }],
-    aliases: [['accounts', 'use']],
+    aliases: [['use', 'account'], ['account', 'use']],
     description: 'Select the default account',
-    path: ['use', 'account'],
+    path: ['accounts', 'use'],
     risk: 'write',
     run: useAccount,
   },
   {
-    args: [{ name: 'bridge' }],
+    args: [{ name: 'bridge', description: 'Bridge ID, name, or network to connect' }],
     description: 'Connect a chat account by bridge',
     flags: [
       { name: 'cookie', type: 'string', multiple: true, description: 'Cookie value in name=value form' },
@@ -360,28 +523,30 @@ export const commands: CommandSpec[] = [
       { name: 'webview-backend', type: 'string', enum: ['auto', 'chrome', 'webkit'], default: 'chrome', description: 'Bun.WebView backend' },
       { name: 'webview-timeout', type: 'integer', default: 120, description: 'Seconds to wait for WebView cookie collection' },
     ],
+    aliases: [['accounts', 'create'], ['accounts', 'new'], ['account', 'add'], ['account', 'create'], ['account', 'new']],
     path: ['accounts', 'add'],
     risk: 'write',
     run: accountsAdd,
   },
   {
     args: [{ name: 'selector', required: true, description: 'Target name' }],
-    aliases: [['targets', 'remove'], ['targets', 'rm']],
+    aliases: [['targets', 'rm'], ['targets', 'del'], ['remove', 'target'], ['target', 'remove'], ['target', 'rm'], ['target', 'del']],
     description: 'Remove a target',
-    path: ['remove', 'target'],
+    path: ['targets', 'remove'],
     risk: 'destructive',
     run: removeTargetCommand,
   },
   {
     args: [{ name: 'selector', required: true, description: 'Account selector' }],
-    aliases: [['accounts', 'remove'], ['accounts', 'rm']],
+    aliases: [['accounts', 'rm'], ['accounts', 'del'], ['remove', 'account'], ['account', 'remove'], ['account', 'rm'], ['account', 'del']],
     description: 'Remove an account',
-    path: ['remove', 'account'],
+    path: ['accounts', 'remove'],
     risk: 'destructive',
     run: removeAccount,
   },
   {
-    aliases: [['contacts', 'search'], ['contacts', 'find']],
+    args: [{ name: 'query', description: 'Optional contact lookup query. Used when --query is omitted.' }],
+    aliases: [['contacts', 'ls'], ['contacts', 'search'], ['contacts', 'find'], ['contact', 'list'], ['contact', 'ls'], ['contact', 'search'], ['contact', 'find']],
     description: 'List contacts',
     flags: [
       accountFilterFlag,
@@ -396,17 +561,34 @@ export const commands: CommandSpec[] = [
     run: contactsList,
   },
   {
-    aliases: [['chats', 'ls']],
+    args: [{ name: 'selector', description: 'Contact selector. Used when --jid is omitted.' }],
+    aliases: [['contacts', 'get'], ['contacts', 'info'], ['contact', 'show'], ['contact', 'get'], ['contact', 'info']],
+    description: 'Show one contact',
+    flags: [
+      accountFilterFlag,
+      { name: 'jid', type: 'string', description: 'Contact JID or user ID' },
+      candidateLimitFlag,
+      pickCandidateFlag,
+    ],
+    mcp: true,
+    output: 'contacts',
+    path: ['contacts', 'show'],
+    risk: 'read',
+    run: contactsShow,
+  },
+  {
+    aliases: [['chats', 'ls'], ['chat', 'list'], ['chat', 'ls'], ['ls'], ['list']],
     description: 'List chats',
     flags: [
       accountFilterFlag,
       { name: 'archived', type: 'boolean', description: 'Only archived chats; use --no-archived to exclude' },
       { name: 'ids', type: 'boolean', default: false, description: 'Print preferred chat selectors' },
-      { name: 'limit', type: 'integer', default: 20, description: 'Maximum chats to print' },
+      { name: 'limit', type: 'integer', default: 50, description: 'Maximum chats to print' },
       { name: 'low-priority', type: 'boolean', description: 'Only low-priority chats; use --no-low-priority to exclude' },
       { name: 'muted', type: 'boolean', description: 'Only muted chats; use --no-muted to exclude' },
       { name: 'pinned', type: 'boolean', description: 'Only pinned chats; use --no-pinned to exclude' },
       { name: 'query', type: 'string', description: 'Optional chat lookup query' },
+      { name: 'type', aliases: ['chat-type'], type: 'string', enum: ['single', 'group', 'any'], description: 'Only direct messages, group chats, or all chats' },
       { name: 'unread', type: 'boolean', description: 'Only unread chats; use --no-unread to exclude' },
     ],
     mcp: true,
@@ -416,9 +598,78 @@ export const commands: CommandSpec[] = [
     run: chatsList,
   },
   {
+    aliases: [['groups', 'ls'], ['group', 'list'], ['group', 'ls']],
+    description: 'List group chats',
+    flags: [
+      accountFilterFlag,
+      { name: 'ids', type: 'boolean', default: false, description: 'Print preferred chat selectors' },
+      { name: 'limit', type: 'integer', default: 50, description: 'Maximum groups to print' },
+      { name: 'query', type: 'string', description: 'Optional group lookup query' },
+    ],
+    output: 'chats',
+    path: ['groups', 'list'],
+    risk: 'read',
+    run: groupsList,
+  },
+  {
+    args: [{ name: 'jid', description: 'Group chat selector. Used when --jid is omitted.' }],
+    aliases: [['groups', 'info'], ['group', 'show'], ['group', 'info']],
+    description: 'Show group details',
+    flags: [
+      { name: 'jid', aliases: ['chat'], type: 'string', description: 'Group chat selector' },
+      { name: 'max-participants', type: 'integer', description: 'Limit participants returned in group details' },
+      pickChatFlag,
+    ],
+    path: ['groups', 'show'],
+    risk: 'read',
+    run: groupsShow,
+  },
+  {
+    aliases: [['groups', 'add'], ['groups', 'new'], ['group', 'create'], ['group', 'add'], ['group', 'new']],
+    description: 'Create a group chat',
+    flags: [
+      { name: 'account', type: 'string', description: 'Account selector' },
+      { name: 'name', aliases: ['title'], type: 'string', required: true, description: 'Group name' },
+      { name: 'user', type: 'string', multiple: true, required: true, description: 'Initial participant user ID, phone, or handle' },
+      { name: 'message', type: 'string', description: 'Optional first message text' },
+    ],
+    path: ['groups', 'create'],
+    risk: 'write',
+    run: groupsCreate,
+  },
+  {
+    args: [{ name: 'jid', description: 'Group chat selector. Used when --jid is omitted.' }],
+    aliases: [['group', 'rename']],
+    description: 'Rename a group',
+    flags: [
+      { name: 'jid', aliases: ['chat'], type: 'string', description: 'Group chat selector' },
+      { name: 'name', aliases: ['title'], type: 'string', required: true, description: 'New group name' },
+      pickChatFlag,
+    ],
+    path: ['groups', 'rename'],
+    risk: 'write',
+    run: groupsRename,
+  },
+  {
+    args: [{ name: 'jid', description: 'Group chat selector. Used when --jid is omitted.' }],
+    aliases: [['groups', 'topic'], ['group', 'description'], ['group', 'topic']],
+    description: 'Set or clear a group description',
+    flags: [
+      { name: 'jid', aliases: ['chat'], type: 'string', description: 'Group chat selector' },
+      { name: 'clear', type: 'boolean', default: false, description: 'Clear the description' },
+      { name: 'description', aliases: ['topic'], type: 'string', description: 'Group description' },
+      pickChatFlag,
+    ],
+    path: ['groups', 'description'],
+    risk: 'write',
+    run: groupsDescription,
+  },
+  {
+    args: [{ name: 'chat', description: 'Chat selector. Used when --chat is omitted.' }],
+    aliases: [['chats', 'info'], ['chat', 'show'], ['chat', 'info']],
     description: 'Show chat details',
     flags: [
-      chatFlag,
+      { ...chatFlag, required: false },
       { name: 'max-participants', type: 'integer', description: 'Limit participants returned in chat details' },
       pickChatFlag,
     ],
@@ -428,7 +679,8 @@ export const commands: CommandSpec[] = [
     run: chatsShow,
   },
   {
-    args: [{ name: 'user', required: true }],
+    args: [{ name: 'user', required: true, description: 'User ID, phone, handle, or contact selector' }],
+    aliases: [['chat', 'start']],
     description: 'Start a chat',
     flags: [
       { name: 'account', type: 'string', description: 'Account selector' },
@@ -439,37 +691,74 @@ export const commands: CommandSpec[] = [
     run: chatsStart,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'archive']],
     description: 'Archive or unarchive a chat',
-    flags: [...chatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unarchive the chat' }],
+    flags: [...optionalChatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unarchive the chat' }],
     path: ['chats', 'archive'],
     risk: 'write',
     run: chatsSetFlag,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'unarchive']],
+    description: 'Unarchive a chat',
+    flags: optionalChatFlags,
+    path: ['chats', 'unarchive'],
+    risk: 'write',
+    run: chatsSetFlag,
+  },
+  {
+    args: [chatArg],
+    aliases: [['chat', 'pin']],
     description: 'Pin or unpin a chat',
-    flags: [...chatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unpin the chat' }],
+    flags: [...optionalChatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unpin the chat' }],
     path: ['chats', 'pin'],
     risk: 'write',
     run: chatsSetFlag,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'unpin']],
+    description: 'Unpin a chat',
+    flags: optionalChatFlags,
+    path: ['chats', 'unpin'],
+    risk: 'write',
+    run: chatsSetFlag,
+  },
+  {
+    args: [chatArg],
+    aliases: [['chat', 'mute']],
     description: 'Mute or unmute a chat',
-    flags: [...chatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unmute the chat' }],
+    flags: [...optionalChatFlags, { name: 'clear', type: 'boolean', default: false, description: 'Unmute the chat' }],
     path: ['chats', 'mute'],
     risk: 'write',
     run: chatsSetFlag,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'unmute']],
+    description: 'Unmute a chat',
+    flags: optionalChatFlags,
+    path: ['chats', 'unmute'],
+    risk: 'write',
+    run: chatsSetFlag,
+  },
+  {
+    args: [chatArg],
+    aliases: [['chat', 'rename']],
     description: 'Rename a chat',
-    flags: [...chatFlags, { name: 'title', type: 'string', required: true, description: 'Chat title' }],
+    flags: [...optionalChatFlags, { name: 'title', type: 'string', required: true, description: 'Chat title' }],
     path: ['chats', 'rename'],
     risk: 'write',
     run: chatsRename,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'description']],
     description: 'Set or clear a chat description',
     flags: [
-      ...chatFlags,
+      ...optionalChatFlags,
       { name: 'clear', type: 'boolean', default: false, description: 'Clear or unset the chosen state' },
       { name: 'description', type: 'string', description: 'Chat description' },
     ],
@@ -478,9 +767,11 @@ export const commands: CommandSpec[] = [
     run: chatsDescription,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'avatar']],
     description: 'Set or clear a chat avatar',
     flags: [
-      ...chatFlags,
+      ...optionalChatFlags,
       { name: 'clear', type: 'boolean', default: false, description: 'Clear the avatar' },
       { name: 'file', type: 'string', description: 'Avatar image file path' },
     ],
@@ -489,27 +780,52 @@ export const commands: CommandSpec[] = [
     run: chatsAvatar,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'priority']],
     description: 'Set chat priority',
-    flags: [...chatFlags, { name: 'level', type: 'string', required: true, enum: ['inbox', 'low'], description: 'Chat priority level' }],
+    flags: [...optionalChatFlags, { name: 'level', type: 'string', required: true, enum: ['inbox', 'low'], description: 'Chat priority level' }],
     path: ['chats', 'priority'],
     risk: 'write',
     run: chatsPriority,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'read']],
     description: 'Mark a chat read or unread',
     flags: [
-      ...chatFlags,
+      ...optionalChatFlags,
       { name: 'message', type: 'string', description: 'Read marker message ID' },
       { name: 'unread', type: 'boolean', default: false, description: 'Mark the chat unread' },
     ],
+    mcp: true,
     path: ['chats', 'read'],
     risk: 'write',
     run: chatsRead,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'mark-read']],
+    description: 'Mark a chat as read',
+    flags: [...optionalChatFlags, { name: 'message', type: 'string', description: 'Read marker message ID' }],
+    path: ['chats', 'mark-read'],
+    risk: 'write',
+    run: chatsRead,
+  },
+  {
+    args: [chatArg],
+    aliases: [['chat', 'mark-unread']],
+    description: 'Mark a chat as unread',
+    flags: optionalChatFlags,
+    path: ['chats', 'mark-unread'],
+    risk: 'write',
+    run: chatsRead,
+  },
+  {
+    args: [chatArg],
+    aliases: [['chat', 'draft']],
     description: 'Set or clear a chat draft',
     flags: [
-      ...chatFlags,
+      ...optionalChatFlags,
       { name: 'clear', type: 'boolean', default: false, description: 'Clear the draft' },
       { name: 'file', type: 'string', description: 'Draft attachment file path' },
       { name: 'filename', type: 'string', description: 'Draft attachment filename' },
@@ -521,9 +837,11 @@ export const commands: CommandSpec[] = [
     run: chatsDraft,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'remind']],
     description: 'Set or clear a chat reminder',
     flags: [
-      ...chatFlags,
+      ...optionalChatFlags,
       { name: 'clear', type: 'boolean', default: false, description: 'Clear the reminder' },
       { name: 'dismiss-on-message', type: 'boolean', default: false, description: 'Dismiss reminder when a new message arrives' },
       { name: 'when', type: 'string', description: 'ISO reminder timestamp' },
@@ -533,19 +851,24 @@ export const commands: CommandSpec[] = [
     run: chatsRemind,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'disappear']],
     description: 'Set a disappearing-message timer',
     flags: [
-      ...chatFlags,
-      { name: 'seconds', type: 'string', description: 'Disappearing-message timer in seconds, or off' },
+      ...optionalChatFlags,
+      { name: 'seconds', aliases: ['duration', 'ephemeral-duration'], type: 'string', description: 'Disappearing-message timer in seconds, duration form like 24h/7d/90d, or off' },
     ],
     path: ['chats', 'disappear'],
     risk: 'write',
     run: chatsDisappear,
   },
   {
+    args: [{ name: 'chat', description: 'Chat selector. Used when --chat is omitted.' }],
+    aliases: [['chat', 'focus'], ['open'], ['browse'], ['focus']],
     description: 'Focus a chat in Beeper',
     flags: [
-      ...chatFlags,
+      { ...chatFlag, required: false },
+      pickChatFlag,
       { name: 'file', type: 'string', description: 'Draft attachment file path' },
       { name: 'message', type: 'string', description: 'Message ID to focus' },
       { name: 'text', type: 'string', description: 'Draft text' },
@@ -555,14 +878,25 @@ export const commands: CommandSpec[] = [
     run: chatsFocus,
   },
   {
+    args: [chatArg],
+    aliases: [['chat', 'notify-anyway']],
     description: 'Notify a chat anyway',
-    flags: chatFlags,
+    flags: optionalChatFlags,
     path: ['chats', 'notify-anyway'],
     risk: 'write',
     run: chatsNotifyAnyway,
   },
   {
-    args: [{ name: 'selector', required: true }],
+    aliases: [['search-all'], ['find-all']],
+    args: [{ name: 'query', required: true, description: 'Search query' }],
+    description: 'Search chats, group participants, and messages together',
+    output: 'diagnostic',
+    path: ['search', 'all'],
+    risk: 'read',
+    run: unifiedSearch,
+  },
+  {
+    args: [{ name: 'selector', required: true, description: 'Account selector' }],
     description: 'Resolve an account selector',
     flags: [pickCandidateFlag],
     mcp: true,
@@ -571,16 +905,15 @@ export const commands: CommandSpec[] = [
     run: resolveAccount,
   },
   {
-    args: [{ name: 'selector', required: true }],
+    args: [{ name: 'selector', required: true, description: 'Bridge selector' }],
     description: 'Resolve a bridge selector',
     flags: [pickCandidateFlag],
-    mcp: true,
     path: ['resolve', 'bridge'],
     risk: 'read',
     run: resolveBridge,
   },
   {
-    args: [{ name: 'selector', required: true }],
+    args: [{ name: 'selector', required: true, description: 'Chat selector' }],
     description: 'Resolve a chat selector',
     flags: [
       accountFilterFlag,
@@ -593,7 +926,7 @@ export const commands: CommandSpec[] = [
     run: resolveChat,
   },
   {
-    args: [{ name: 'selector', required: true }],
+    args: [{ name: 'selector', required: true, description: 'Contact selector' }],
     description: 'Resolve a contact selector',
     flags: [
       accountFilterFlag,
@@ -606,7 +939,7 @@ export const commands: CommandSpec[] = [
     run: resolveContact,
   },
   {
-    args: [{ name: 'selector', required: true }],
+    args: [{ name: 'selector', required: true, description: 'Target selector' }],
     description: 'Resolve a target selector',
     flags: [pickCandidateFlag],
     mcp: true,
@@ -617,16 +950,7 @@ export const commands: CommandSpec[] = [
   {
     description: 'List chat messages',
     aliases: [['messages', 'ls']],
-    flags: [
-      { name: 'after-cursor', type: 'string', description: 'Paginate messages newer than this message ID' },
-      { name: 'asc', type: 'boolean', default: false, description: 'Order oldest first' },
-      { name: 'before-cursor', type: 'string', description: 'Paginate messages older than this message ID' },
-      chatFlag,
-      { name: 'ids', type: 'boolean', default: false, description: 'Print only message IDs' },
-      { name: 'limit', type: 'integer', default: 50, description: 'Maximum messages to print' },
-      pickChatFlag,
-      { name: 'sender', type: 'string', description: 'me, others, or a specific user ID' },
-    ],
+    flags: [...messageListFlags(), { name: 'ids', type: 'boolean', default: false, description: 'Print only message IDs' }],
     mcp: true,
     output: 'messages',
     path: ['messages', 'list'],
@@ -634,11 +958,12 @@ export const commands: CommandSpec[] = [
     run: messagesList,
   },
   {
+    args: [{ name: 'id', description: 'Message ID. Used when --id is omitted.' }],
     description: 'Show a message with surrounding context',
     flags: [
       chatFlag,
       pickChatFlag,
-      { name: 'id', type: 'string', required: true, description: 'Message ID' },
+      { name: 'id', type: 'string', description: 'Message ID' },
       { name: 'after', type: 'integer', default: 10, description: 'Messages after target' },
       { name: 'before', type: 'integer', default: 10, description: 'Messages before target' },
     ],
@@ -648,26 +973,85 @@ export const commands: CommandSpec[] = [
     run: messagesContext,
   },
   {
+    args: [{ name: 'id', description: 'Message ID. Used when --id is omitted.' }],
+    aliases: [['messages', 'get'], ['messages', 'info']],
+    description: 'Show one message',
+    flags: [
+      chatFlag,
+      pickChatFlag,
+      { name: 'id', type: 'string', description: 'Message ID' },
+    ],
+    mcp: true,
+    path: ['messages', 'show'],
+    risk: 'read',
+    run: messagesContext,
+  },
+  {
+    description: 'Export messages as JSON',
+    flags: [
+      ...messageListFlags(1000, 'Maximum messages to export'),
+      { name: 'output', aliases: ['out'], type: 'string', description: 'Write JSON export to file instead of stdout' },
+    ],
+    output: 'messages',
+    path: ['messages', 'export'],
+    risk: 'read',
+    run: messagesExport,
+  },
+  {
+    args: [{ name: 'id', description: 'Source message ID. Used when --id is omitted.' }],
+    description: 'Forward a message',
+    flags: [
+      chatFlag,
+      { name: 'id', type: 'string', description: 'Source message ID' },
+      { name: 'to', type: 'string', required: true, description: 'Destination chat selector' },
+      pickChatFlag,
+      { name: 'attachment-index', type: 'integer', default: 1, description: 'Attachment index to forward when the message has media, 1-based' },
+      { name: 'post-send-wait', type: 'string', default: '2s', description: 'Compatibility alias for waiting after forward, for example 2s or 500ms; 0 disables waiting' },
+      { name: 'wait', type: 'boolean', default: false, description: 'Wait until the forwarded message leaves pending state' },
+      { name: 'wait-timeout', type: 'integer', default: 30_000, description: 'Maximum wait time in ms when --wait is set' },
+    ],
+    path: ['messages', 'forward'],
+    risk: 'write',
+    run: messagesForward,
+  },
+  {
+    args: [{ name: 'id', description: 'Message ID. Used when --id is omitted.' }],
+    aliases: [['messages', 'update'], ['messages', 'set']],
     description: 'Edit a message',
     flags: [
       chatFlag,
       pickChatFlag,
-      { name: 'id', type: 'string', required: true, description: 'Message ID' },
+      { name: 'id', type: 'string', description: 'Message ID' },
       { name: 'message', type: 'string', required: true, description: 'New message text' },
     ],
+    mcp: true,
     path: ['messages', 'edit'],
     risk: 'write',
     run: messagesEdit,
   },
   {
+    args: [{ name: 'id', description: 'Message ID. Used when --id is omitted.' }],
+    aliases: [['messages', 'rm'], ['messages', 'del'], ['messages', 'remove']],
     description: 'Delete a message',
     flags: [
       chatFlag,
       pickChatFlag,
-      { name: 'id', type: 'string', required: true, description: 'Message ID' },
+      { name: 'id', type: 'string', description: 'Message ID' },
       { name: 'for-everyone', type: 'boolean', default: false, description: 'Delete for everyone when supported' },
     ],
     path: ['messages', 'delete'],
+    risk: 'destructive',
+    run: messagesDelete,
+  },
+  {
+    args: [{ name: 'id', description: 'Message ID. Used when --id is omitted.' }],
+    description: 'Delete a sent message for everyone',
+    flags: [
+      chatFlag,
+      pickChatFlag,
+      { name: 'id', type: 'string', description: 'Message ID' },
+    ],
+    path: ['messages', 'revoke'],
     risk: 'destructive',
     run: messagesDelete,
   },
@@ -678,18 +1062,40 @@ export const commands: CommandSpec[] = [
       { name: 'exclude-type', type: 'string', multiple: true, enum: ['chat.upserted', 'chat.deleted', 'message.upserted', 'message.deleted', 'message.stream'], description: 'Drop events of these types' },
       { name: 'include-type', type: 'string', multiple: true, enum: ['chat.upserted', 'chat.deleted', 'message.upserted', 'message.deleted', 'message.stream'], description: 'Only forward events of these types' },
       { name: 'webhook', type: 'string', description: 'Forward each event to this URL as POST' },
+      { name: 'webhook-allow-private', type: 'boolean', default: false, description: 'Accepted for compatibility; Beeper watch allows private webhook URLs' },
       { name: 'webhook-queue', type: 'integer', default: 64, description: 'Maximum pending webhook deliveries' },
-      { name: 'webhook-secret', type: 'string', description: 'HMAC-SHA256 secret for X-Beeper-Signature' },
+      { name: 'webhook-secret', type: 'string', description: 'HMAC-SHA256 secret for X-Beeper-Signature and X-Wacli-Signature' },
     ],
     path: ['watch'],
     risk: 'read',
     run: watch,
   },
   {
-    args: [{ name: 'url', required: true }],
+    args: [{ name: 'url', description: 'Media URL to download. Use --id with --chat to download from a message.' }],
+    aliases: [['media', 'dl'], ['download'], ['dl']],
     description: 'Download message media',
-    flags: [{ name: 'out', type: 'string', default: '.', description: 'Output directory; - streams to stdout' }],
+    flags: [
+      { name: 'out', aliases: ['output'], type: 'string', default: '.', description: 'Output directory or file; - streams to stdout' },
+      { name: 'chat', type: 'string', description: 'Chat selector for --id message lookup' },
+      { name: 'id', type: 'string', description: 'Message ID containing media' },
+      { name: 'index', type: 'integer', default: 1, description: 'Attachment index to download, 1-based' },
+      { name: 'poster', type: 'boolean', default: false, description: 'Download attachment poster image when available' },
+    ],
     path: ['media', 'download'],
+    risk: 'write',
+    run: mediaDownload,
+  },
+  {
+    args: [{ name: 'id', description: 'Message ID containing media. Used when --id is omitted.' }],
+    description: 'Download media for a message',
+    flags: [
+      { name: 'out', aliases: ['output'], type: 'string', default: '.', description: 'Output directory or file; - streams to stdout' },
+      chatFlag,
+      { name: 'id', type: 'string', description: 'Message ID containing media' },
+      { name: 'index', type: 'integer', default: 1, description: 'Attachment index to download, 1-based' },
+      { name: 'poster', type: 'boolean', default: false, description: 'Download attachment poster image when available' },
+    ],
+    path: ['media', 'message'],
     risk: 'write',
     run: mediaDownload,
   },
@@ -711,8 +1117,8 @@ export const commands: CommandSpec[] = [
     run: exportCommand,
   },
   {
-    args: [{ name: 'query' }],
-    aliases: [['messages', 'find']],
+    args: [{ name: 'query', description: 'Search query. Optional when a filter such as --sender or --has-media is provided.' }],
+    aliases: [['messages', 'find'], ['search'], ['find']],
     description: 'Search messages across chats',
     examples: [
       'beeper messages search "quarterly report"',
@@ -729,7 +1135,8 @@ export const commands: CommandSpec[] = [
       { name: 'include-muted', type: 'boolean', default: true, description: 'Include muted chats' },
       { name: 'limit', aliases: ['max'], type: 'integer', default: 50, description: 'Maximum results' },
       { name: 'media', type: 'string', multiple: true, enum: ['any', 'video', 'image', 'link', 'file'], description: 'Filter by media type' },
-      { name: 'sender', type: 'string', description: 'me, others, or a user ID' },
+      { name: 'sender', aliases: ['from'], type: 'string', description: 'me, others, or a user ID' },
+      { name: 'has-media', type: 'boolean', default: false, description: 'Only messages with media' },
       { name: 'fail-empty', aliases: ['non-empty', 'require-results'], type: 'boolean', default: false, description: 'Exit with code 3 if no results' },
     ],
     mcp: true,
@@ -739,18 +1146,24 @@ export const commands: CommandSpec[] = [
     run: messagesSearch,
   },
   {
-    args: [{ name: 'method', required: true }, { name: 'path', required: true }],
+    args: [
+      { name: 'method', required: true, description: 'HTTP method: GET, POST, PUT, PATCH, or DELETE' },
+      { name: 'path', required: true, description: 'Desktop API path, for example /v1/info' },
+    ],
     description: 'Call a raw Desktop API path with any supported HTTP method',
     flags: [
       { name: 'body', type: 'string', description: 'JSON request body' },
       { name: 'no-auth', type: 'boolean', default: false, description: 'Call a public API path without a bearer token' },
     ],
-    mcp: true,
     path: ['api', 'request'],
     risk: 'write',
     run: apiCommand,
   },
   {
+    args: [
+      { name: 'to', description: 'Chat selector. Used when --to is omitted.' },
+      { name: 'message', description: 'Message text. Used when --message and --message-file are omitted.', variadic: true },
+    ],
     description: 'Send a text message',
     flags: [
       ...sendDeliveryFlags,
@@ -759,29 +1172,71 @@ export const commands: CommandSpec[] = [
       { name: 'message-file', type: 'string', description: "Read message text from a file path; '-' reads stdin" },
       { name: 'mention', type: 'string', multiple: true, description: 'User ID to mention' },
       { name: 'no-preview', type: 'boolean', default: false, description: 'Disable automatic link preview' },
+      { name: 'ephemeral', type: 'boolean', default: false, description: 'Send with this chat\'s disappearing-message timer' },
+      { name: 'ephemeral-duration', type: 'string', description: 'Set the chat disappearing-message timer before sending, for example 24h, 7d, 90d, or 168h' },
     ],
+    path: ['send'],
+    risk: 'write',
+    run: sendTextLike,
+  },
+  {
+    aliases: [['message'], ['msg']],
+    args: [
+      { name: 'to', description: 'Chat selector. Used when --to is omitted.' },
+      { name: 'message', description: 'Message text. Used when --message and --message-file are omitted.', variadic: true },
+    ],
+    description: 'Send a text message',
+    flags: [
+      ...sendDeliveryFlags,
+      { name: 'message', type: 'string', description: 'Message text to send' },
+      { name: 'message-escapes', type: 'boolean', default: false, description: 'Interpret backslash escapes in --message' },
+      { name: 'message-file', type: 'string', description: "Read message text from a file path; '-' reads stdin" },
+      { name: 'mention', type: 'string', multiple: true, description: 'User ID to mention' },
+      { name: 'no-preview', type: 'boolean', default: false, description: 'Disable automatic link preview' },
+      { name: 'ephemeral', type: 'boolean', default: false, description: 'Send with this chat\'s disappearing-message timer' },
+      { name: 'ephemeral-duration', type: 'string', description: 'Set the chat disappearing-message timer before sending, for example 24h, 7d, 90d, or 168h' },
+    ],
+    mcp: true,
     path: ['send', 'text'],
     risk: 'write',
     run: sendTextLike,
   },
   {
+    args: [{ name: 'localPath', description: 'Local file path to upload. Used when --file is omitted.' }],
     description: 'Send a file message',
     flags: [
       ...sendDeliveryFlags,
-      { name: 'file', type: 'string', required: true, description: 'Local file path to upload' },
+      { name: 'file', type: 'string', description: 'Local file path to upload' },
       { name: 'caption', type: 'string', description: 'Optional caption for file messages' },
       { name: 'filename', type: 'string', description: 'Override displayed filename' },
       { name: 'mime', type: 'string', description: 'Override MIME type' },
+      { name: 'ptt', type: 'boolean', default: false, description: 'Send audio as a voice note' },
     ],
     path: ['send', 'file'],
     risk: 'write',
     run: sendTextLike,
   },
   {
+    aliases: [['up'], ['put']],
+    args: [{ name: 'localPath', required: true, description: 'Local file path to upload' }],
+    description: 'Send a file message',
+    flags: [
+      ...sendDeliveryFlags,
+      { name: 'caption', type: 'string', description: 'Optional caption for file messages' },
+      { name: 'filename', type: 'string', description: 'Override displayed filename' },
+      { name: 'mime', type: 'string', description: 'Override MIME type' },
+      { name: 'ptt', type: 'boolean', default: false, description: 'Send audio as a voice note' },
+    ],
+    path: ['upload'],
+    risk: 'write',
+    run: uploadFile,
+  },
+  {
+    args: [{ name: 'localPath', description: 'Local sticker file path to upload. Used when --file is omitted.' }],
     description: 'Send a sticker',
     flags: [
       ...sendDeliveryFlags,
-      { name: 'file', type: 'string', required: true, description: 'Local sticker file path to upload' },
+      { name: 'file', type: 'string', description: 'Local sticker file path to upload' },
       { name: 'filename', type: 'string', description: 'Override displayed filename' },
       { name: 'mime', type: 'string', description: 'Override MIME type' },
     ],
@@ -790,10 +1245,11 @@ export const commands: CommandSpec[] = [
     run: sendTextLike,
   },
   {
+    args: [{ name: 'localPath', description: 'Local voice note file path to upload. Used when --file is omitted.' }],
     description: 'Send a voice note',
     flags: [
       ...sendDeliveryFlags,
-      { name: 'file', type: 'string', required: true, description: 'Local voice note file path to upload' },
+      { name: 'file', type: 'string', description: 'Local voice note file path to upload' },
       { name: 'duration', type: 'integer', description: 'Duration in seconds' },
       { name: 'filename', type: 'string', description: 'Override displayed filename' },
       { name: 'mime', type: 'string', description: 'Override MIME type' },
@@ -803,52 +1259,80 @@ export const commands: CommandSpec[] = [
     run: sendTextLike,
   },
   {
+    aliases: [['send', 'reaction']],
+    args: [{ name: 'id', description: 'Message ID to react to. Used when --id is omitted.' }],
     description: 'Send or remove a reaction',
     flags: [
       ...sendChatFlags,
-      { name: 'id', type: 'string', required: true, description: 'Message ID to react to' },
-      { name: 'reaction', type: 'string', required: true, description: 'Reaction key' },
+      { name: 'id', type: 'string', description: 'Message ID to react to' },
+      { name: 'reaction', type: 'string', default: '+1', description: 'Reaction key; empty string removes the reaction' },
       { name: 'remove', type: 'boolean', default: false, description: 'Remove the reaction' },
+      { name: 'post-send-wait', type: 'string', description: 'Compatibility alias for waiting after send, for example 2s or 500ms; 0 disables waiting' },
       { name: 'transaction', type: 'string', description: 'Optional transaction ID for deduplication' },
     ],
+    mcp: true,
     path: ['send', 'react'],
     risk: 'write',
     run: sendReact,
   },
   {
     description: 'Send a typing indicator',
-    flags: [
-      ...sendChatFlags,
-      { name: 'duration', type: 'integer', description: 'Seconds to keep typing before sending paused' },
-      { name: 'state', type: 'string', enum: ['typing', 'paused'], default: 'typing', description: 'Presence indicator to send' },
-    ],
+    flags: presenceFlags,
     path: ['send', 'presence'],
     risk: 'write',
     run: sendPresence,
   },
   {
-    args: [{ name: 'name' }],
+    description: 'Send presence indicators',
+    flags: presenceFlags,
+    path: ['presence'],
+    risk: 'write',
+    run: sendPresence,
+  },
+  {
+    description: "Send a 'composing' (typing) indicator to a chat",
+    flags: [
+      ...sendChatFlags,
+      { name: 'duration', type: 'integer', description: 'Seconds to keep typing before sending paused' },
+    ],
+    path: ['presence', 'typing'],
+    risk: 'write',
+    run: sendPresence,
+  },
+  {
+    description: "Send a 'paused' indicator (stop typing) to a chat",
+    flags: sendChatFlags,
+    path: ['presence', 'paused'],
+    risk: 'write',
+    run: sendPresence,
+  },
+  {
+    args: [{ name: 'name', description: 'Target name. Defaults to the selected target.' }],
+    aliases: [['target', 'runtime', 'start']],
     description: 'Start a local target runtime',
     path: ['targets', 'runtime', 'start'],
     risk: 'write',
     run: targetsRuntime,
   },
   {
-    args: [{ name: 'name' }],
+    args: [{ name: 'name', description: 'Target name. Defaults to the selected target.' }],
+    aliases: [['target', 'runtime', 'stop']],
     description: 'Stop a local server runtime',
     path: ['targets', 'runtime', 'stop'],
     risk: 'write',
     run: targetsRuntime,
   },
   {
-    args: [{ name: 'name' }],
+    args: [{ name: 'name', description: 'Target name. Defaults to the selected target.' }],
+    aliases: [['target', 'runtime', 'restart']],
     description: 'Restart a local server runtime',
     path: ['targets', 'runtime', 'restart'],
     risk: 'write',
     run: targetsRuntime,
   },
   {
-    args: [{ name: 'name' }],
+    args: [{ name: 'name', description: 'Target name. Defaults to the selected target.' }],
+    aliases: [['target', 'logs']],
     description: 'Print logs for a local Beeper Desktop or Server install',
     flags: [
       { name: 'lines', type: 'integer', default: 200, description: 'Lines to print from each log file' },
@@ -862,67 +1346,380 @@ export const commands: CommandSpec[] = [
 ]
 
 export function commandHelp(command: CommandSpec, globalFlags?: GlobalFlags): string {
-  if (globalFlags && !commandVisible(command, globalFlags)) return help(globalFlags)
+  if (globalFlags && !commandVisible(command, globalFlags) && !childCommandRows(command.path, globalFlags).length) return help(globalFlags)
   const path = command.path.join(' ')
-  const usageAliases = (command.aliases ?? []).map(alias => alias.join(' ')).join(', ')
-  const lines = [`Usage: beeper ${path}${command.args?.length ? ` ${command.args.map(arg => arg.variadic ? `<${arg.name}> ...` : arg.required ? `<${arg.name}>` : `[${arg.name}]`).join(' ')}` : ''} [flags]`, '', command.description]
-  if (usageAliases) lines.push('', `Aliases: ${usageAliases}`)
+  const usagePath = [path, formatUsageAliases(command)].filter(Boolean).join(' ')
+  const children = childCommandRows(command.path, globalFlags)
+  const argsUsage = command.args?.length ? ` ${command.args.map(formatArgUsage).join(' ')}` : children.length ? ' <command>' : ''
+  const lines = [`Usage: beeper ${usagePath}${argsUsage} [flags]`, `Build: ${buildInfo()}`, '', command.description]
   const args = command.args ?? []
-  const flags = command.flags ?? []
   if (args.length) {
     lines.push('', 'Arguments:')
-    for (const arg of args) lines.push(`  ${arg.name}${arg.required ? '' : '?'}${arg.variadic ? '...' : ''}\t${arg.description ?? ''}`)
+    lines.push(...formatHelpRows(args.map(arg => [formatArgLabel(arg), arg.description ?? ''])))
   }
+  lines.push('', 'Flags:')
+  lines.push(...formatHelpRows(displayFlags(globalFlagSpecs).map(flag => [formatFlag(flag), formatFlagDescription(flag)])))
+  const flags = command.flags ?? []
   if (flags.length) {
-    lines.push('', 'Flags:')
-    for (const flag of flags) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
+    lines.push('')
+    lines.push(...formatHelpRows(flags.map(flag => [formatFlag(flag), formatFlagDescription(flag)])))
   }
   if (command.examples?.length) {
     lines.push('', 'Examples:', ...command.examples.map(example => `  ${example}`))
   }
-  lines.push('', 'Global flags:')
-  for (const flag of globalFlagSpecs) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
+  if (children.length) {
+    lines.push('', 'Commands:')
+    for (const child of children) {
+      lines.push(`  ${formatCommandUsage(child.command, { path: child.displayPath, prefix: command.path })}`, `    ${child.command.description}`, '')
+    }
+    lines.pop()
+  }
   return `${lines.join('\n')}\n`
 }
 
 export function help(globalFlags?: GlobalFlags): string {
   const visible = commands.filter(command => globalFlags ? commandVisible(command, globalFlags) : !command.hidden)
-  const width = Math.max(...visible.map(command => command.path.join(' ').length)) + 2
+  const configRoot = beeperConfigRootInfo()
   const lines = [
     'Usage: beeper <command> [flags]',
+    `Build: ${buildInfo()}`,
     '',
     'Beeper CLI for Beeper Desktop and Beeper Server. Built for terminals, scripts, CI, and agents.',
     '',
     'Config:',
     '',
     `    file: ${configPath()}`,
+    `    root: ${configRoot.path} (source: ${configRoot.source})`,
+    '',
+    'Flags:',
+  ]
+  lines.push(...formatHelpRows(displayFlags(globalFlagSpecs).map(flag => [formatFlag(flag), formatFlagDescription(flag)])))
+  lines.push(
     '',
     'Commands:',
-  ]
-  for (const command of [...visible].sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))) {
-    const aliases = command.aliases?.length ? ` (${command.aliases.map(alias => alias.join(' ')).join(', ')})` : ''
-    lines.push(`  ${command.path.join(' ').padEnd(width)}${command.description}${aliases}`)
+  )
+  for (const row of rootCommandRows(visible)) {
+    lines.push(`  ${row.usage}`, `    ${row.description}`, '')
   }
-  lines.push('', 'Global flags:')
-  for (const flag of globalFlagSpecs) lines.push(`  ${formatFlag(flag)}\t${flag.description ?? ''}`)
-  lines.push('', 'Run "beeper <command> --help" for more information on a command.')
+  lines.push('Run "beeper <command> --help" for more information on a command.')
   return `${lines.join('\n')}\n`
 }
 
+function rootCommandRows(visible: CommandSpec[]): Array<{ description: string; sort: string; usage: string }> {
+  const rows = new Map<string, { description: string; sort: string; usage: string }>()
+  const topLevel = new Set(visible.map(command => command.path[0]).filter((part): part is string => Boolean(part)))
+  for (const command of visible) {
+    if (command.path.length === 1) {
+      const hasChildren = visible.some(candidate =>
+        candidate.path.length > 1 && candidate.path[0] === command.path[0]
+        || (candidate.aliases ?? []).some(alias => alias.length > 1 && alias[0] === command.path[0]))
+      rows.set(command.path[0]!, {
+        description: command.description,
+        sort: command.path[0]!,
+        usage: hasChildren && !command.args?.length ? `${command.path[0]} <command> [flags]` : formatCommandUsage(command),
+      })
+    }
+  }
+  for (const command of visible) {
+    if (command.path.length <= 1) continue
+    const aliases = (command.aliases ?? [])
+      .filter(alias => alias.length === 1)
+      .map(alias => alias[0]!)
+    if (!aliases.length) continue
+    const name = aliases[0]!
+    if (rows.has(name)) continue
+    const alternateAliases = aliases.slice(1)
+    rows.set(name, {
+      description: `${command.description} (alias for '${command.path.join(' ')}')`,
+      sort: name,
+      usage: `${name}${alternateAliases.length ? ` (${alternateAliases.join(',')})` : ''}${command.args?.length ? ` ${command.args.map(formatArgUsage).join(' ')}` : ''} [flags]`,
+    })
+  }
+  const me = visible.find(command => command.path.join(' ') === 'me')
+  const whoamiAliases = me?.aliases?.filter(alias => alias.length === 1 && alias[0]?.startsWith('who')) ?? []
+  if (me && whoamiAliases.length && !rows.has(whoamiAliases[0]![0]!)) {
+    const name = whoamiAliases[0]![0]!
+    rows.set(name, {
+      description: `${me.description} (alias for '${me.path.join(' ')}')`,
+      sort: name,
+      usage: `${name}${whoamiAliases.length > 1 ? ` (${whoamiAliases.slice(1).map(alias => alias[0]).join(',')})` : ''} [flags]`,
+    })
+  }
+  for (const name of topLevel) {
+    if (rows.has(name)) continue
+    const aliases = namespaceAliases(name, visible)
+    rows.set(name, {
+      description: rootNamespaceDescription(name),
+      sort: name,
+      usage: `${name}${aliases.length ? ` (${aliases.join(',')})` : ''} <command> [flags]`,
+    })
+  }
+  return [...rows.values()].sort((a, b) => rootCommandPriority(a.sort) - rootCommandPriority(b.sort) || a.sort.localeCompare(b.sort))
+}
+
+function rootCommandPriority(name: string): number {
+  const order = [
+    'message',
+    'ls',
+    'search',
+    'open',
+    'download',
+    'upload',
+    'login',
+    'logout',
+    'status',
+    'me',
+    'whoami',
+    'setup',
+    'send',
+    'chats',
+    'groups',
+    'messages',
+    'accounts',
+    'contacts',
+    'presence',
+    'media',
+    'targets',
+    'use',
+    'remove',
+    'resolve',
+    'export',
+    'watch',
+    'doctor',
+    'auth',
+    'install',
+    'api',
+    'config',
+    'docs',
+    'schema',
+    'mcp',
+    'agent',
+    'exit-codes',
+    'completion',
+    'help',
+    'version',
+  ]
+  const index = order.indexOf(name)
+  return index === -1 ? order.length : index
+}
+
+function namespaceAliases(name: string, visible: CommandSpec[]): string[] {
+  const allowed = singularNamespaceAliases()[name] ?? []
+  const aliases = new Set<string>()
+  for (const command of visible) {
+    if (command.path[0] !== name) continue
+    for (const alias of command.aliases ?? []) {
+      if (alias.length < 2) continue
+      const aliasRoot = alias[0]
+      if (aliasRoot && allowed.includes(aliasRoot)) aliases.add(aliasRoot)
+    }
+  }
+  return [...aliases].sort((a, b) => rootCommandPriority(a) - rootCommandPriority(b) || a.localeCompare(b))
+}
+
+function singularNamespaceAliases(): Record<string, string[]> {
+  return {
+    accounts: ['account'],
+    chats: ['chat'],
+    contacts: ['contact'],
+    groups: ['group'],
+    targets: ['target'],
+  }
+}
+
+function rootNamespaceDescription(name: string): string {
+  const descriptions: Record<string, string> = {
+    account: 'Manage connected chat accounts',
+    accounts: 'Manage connected chat accounts',
+    api: 'Call raw Beeper Desktop API endpoints',
+    auth: 'Authenticate and manage stored credentials',
+    chat: 'List and manage chats',
+    chats: 'List and manage chats',
+    config: 'Manage configuration',
+    contact: 'List and search contacts',
+    contacts: 'List and search contacts',
+    group: 'List and manage group chats',
+    groups: 'List and manage group chats',
+    install: 'Install Beeper Desktop or Beeper Server',
+    media: 'Download message media',
+    messages: 'List, search, edit, and delete messages',
+    presence: 'Send presence indicators',
+    remove: 'Remove configured resources',
+    resolve: 'Resolve Beeper selectors',
+    search: 'Search Beeper',
+    send: 'Send messages, files, reactions, and presence',
+    target: 'Manage Beeper Desktop and Server targets',
+    targets: 'Manage Beeper Desktop and Server targets',
+    use: 'Select default resources',
+  }
+  return descriptions[name] ?? `${name} commands`
+}
+
 function formatFlag(flag: FlagSpec): string {
-  const long = `--${flag.name}${flag.type === 'boolean' ? '' : `=${flag.placeholder ?? 'STRING'}`}`
+  const long = `--${flag.name}${flagValueUsage(flag)}`
   const prefix = flag.short ? `-${flag.short}, ${long}` : `    ${long}`
   const aliases = flag.aliases?.length ? ` (${flag.aliases.map(alias => `--${alias}`).join(', ')})` : ''
+  return `${prefix}${aliases}`
+}
+
+function formatFlagDescription(flag: FlagSpec): string {
   const env = flag.env?.length ? ` (${flag.env.map(name => `$${name}`).join(',')})` : ''
-  return `${prefix}${aliases}${env}`
+  return `${flag.description ?? ''}${env}`
+}
+
+function formatHelpRows(rows: Array<[string, string]>): string[] {
+  const width = rows.reduce((max, [label]) => Math.max(max, label.length), 0)
+  return rows.flatMap(([label, description]) => {
+    const text = description.trim()
+    if (!text) return [`  ${label}`]
+    return wrapHelpText(text, 120 - width - 4).map((line, index) => {
+      const prefix = index === 0 ? label.padEnd(width + 2) : ''.padEnd(width + 2)
+      return `  ${prefix}${line}`
+    })
+  })
+}
+
+function wrapHelpText(text: string, width: number): string[] {
+  const limit = Math.max(24, width)
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let line = ''
+  for (const word of words) {
+    if (!line) {
+      line = word
+      continue
+    }
+    if (line.length + 1 + word.length > limit) {
+      lines.push(line)
+      line = word
+      continue
+    }
+    line = `${line} ${word}`
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+function displayFlags(flags: FlagSpec[]): FlagSpec[] {
+  const priority = new Map([
+    ['help', 0],
+    ['color', 1],
+    ['home', 2],
+    ['account', 3],
+    ['access-token', 4],
+    ['enable-commands', 5],
+    ['enable-commands-exact', 6],
+    ['disable-commands', 7],
+    ['json', 8],
+    ['plain', 9],
+    ['wrap-untrusted', 10],
+    ['results-only', 11],
+    ['select', 12],
+    ['dry-run', 13],
+    ['force', 14],
+    ['no-input', 15],
+    ['verbose', 16],
+    ['version', 17],
+    ['events', 18],
+    ['full', 19],
+    ['lock-wait', 20],
+    ['read-only', 21],
+    ['safety-profile', 22],
+    ['target', 23],
+    ['timeout', 24],
+  ])
+  return [...flags].sort((a, b) => (priority.get(a.name) ?? 100) - (priority.get(b.name) ?? 100) || a.name.localeCompare(b.name))
+}
+
+function flagValueUsage(flag: FlagSpec): string {
+  if (flag.type === 'boolean') return ''
+  if (flag.default !== undefined) return `=${JSON.stringify(flag.default)}`
+  return `=${flag.placeholder ?? (flag.type === 'integer' ? 'INTEGER' : 'STRING')}`
+}
+
+function formatUsageAliases(command: CommandSpec, prefix?: string[], canonical = displayPath(command.path, prefix)): string {
+  const aliases = (command.aliases ?? [])
+    .filter(alias => !prefix?.length || (alias.length > prefix.length && alias.slice(0, prefix.length).every((part, index) => part === prefix[index])))
+    .map(alias => displayPath(alias, prefix))
+    .filter(alias => alias !== canonical)
+  return aliases.length ? `(${[...new Set(aliases)].join(',')})` : ''
+}
+
+function formatCommandUsage(command: CommandSpec, options: { path?: string[]; prefix?: string[] } = {}): string {
+  const path = displayPath(options.path ?? command.path, options.prefix)
+  const usagePath = [path, formatUsageAliases(command, options.prefix, path)].filter(Boolean).join(' ')
+  const args = command.args?.length ? ` ${command.args.map(formatArgUsage).join(' ')}` : ''
+  return `${usagePath}${args} [flags]`
+}
+
+function displayPath(path: string[], prefix?: string[]): string {
+  if (prefix?.length && path.length > prefix.length && path.slice(0, prefix.length).every((part, index) => part === prefix[index])) {
+    return path.slice(prefix.length).join(' ')
+  }
+  return path.join(' ')
+}
+
+function formatArgUsage(arg: { name: string; required?: boolean; variadic?: boolean }): string {
+  if (arg.variadic) return arg.required ? `<${arg.name}> ...` : `[<${arg.name}> ...]`
+  return arg.required ? `<${arg.name}>` : `[<${arg.name}>]`
+}
+
+function formatArgLabel(arg: { name: string; required?: boolean; variadic?: boolean }): string {
+  if (arg.variadic) return arg.required ? `<${arg.name} ...>` : `[<${arg.name}> ...]`
+  return arg.required ? `<${arg.name}>` : `[<${arg.name}>]`
+}
+
+function childCommandRows(path: string[], globalFlags?: GlobalFlags): Array<{ command: CommandSpec; displayPath: string[] }> {
+  const visible = commands.filter(command => globalFlags ? commandVisible(command, globalFlags) : !command.hidden)
+  return visible
+    .map(command => {
+      const displayPath = commandPathVariants(command).find(variant => variant.length > path.length && variant.slice(0, path.length).every((part, index) => part === path[index]))
+      return displayPath ? { command, displayPath } : undefined
+    })
+    .filter((row): row is { command: CommandSpec; displayPath: string[] } => Boolean(row))
+    .sort((a, b) => subcommandPriority(path, a.displayPath) - subcommandPriority(path, b.displayPath) || a.displayPath.join(' ').localeCompare(b.displayPath.join(' ')))
+}
+
+function subcommandPriority(parent: string[], displayPath: string[]): number {
+  const relative = parent.length ? displayPath.slice(parent.length).join(' ') : displayPath.join(' ')
+  const orders: Record<string, string[]> = {
+    account: ['list', 'show', 'add', 'use', 'remove'],
+    accounts: ['list', 'show', 'add', 'use', 'remove'],
+    auth: ['add', 'list', 'email start', 'email response', 'logout', 'status'],
+    chat: ['list', 'show', 'start', 'archive', 'unarchive', 'pin', 'unpin', 'mute', 'unmute', 'read', 'mark-read', 'mark-unread', 'rename', 'description', 'avatar', 'priority', 'draft', 'remind', 'disappear', 'focus', 'notify-anyway'],
+    chats: ['list', 'show', 'start', 'archive', 'unarchive', 'pin', 'unpin', 'mute', 'unmute', 'read', 'mark-read', 'mark-unread', 'rename', 'description', 'avatar', 'priority', 'draft', 'remind', 'disappear', 'focus', 'notify-anyway'],
+    config: ['get', 'keys', 'set', 'unset', 'list', 'path'],
+    contact: ['list', 'show'],
+    contacts: ['list', 'show'],
+    group: ['list', 'show', 'create', 'rename', 'description'],
+    groups: ['list', 'show', 'create', 'rename', 'description'],
+    media: ['download', 'message'],
+    messages: ['list', 'search', 'context', 'show', 'export', 'forward', 'edit', 'delete', 'revoke'],
+    presence: ['typing', 'paused'],
+    search: ['all'],
+    send: ['text', 'file', 'voice', 'sticker', 'react', 'presence'],
+    target: ['list', 'use', 'add', 'remove', 'logs', 'runtime start', 'runtime stop', 'runtime restart', 'tunnel'],
+    'target runtime': ['start', 'stop', 'restart'],
+    targets: ['list', 'use', 'add', 'remove', 'logs', 'runtime start', 'runtime stop', 'runtime restart', 'tunnel'],
+    'targets runtime': ['start', 'stop', 'restart'],
+  }
+  const order = orders[parent.join(' ')] ?? []
+  const index = order.indexOf(relative)
+  return index === -1 ? order.length : index
 }
 
 async function version(): Promise<Record<string, unknown>> {
   const pkg = await packageInfo()
-  return { name: pkg.name, version: pkg.version }
+  return {
+    name: pkg.name,
+    version: pkg.version,
+    commit: process.env.BEEPER_BUILD_COMMIT ?? '',
+    date: process.env.BEEPER_BUILD_DATE ?? '',
+  }
 }
 
 async function status(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const config = await readConfig()
   const target = await resolveTarget({ target: ctx.args[0] ?? ctx.globalFlags.target })
   return {
     auth: {
@@ -932,8 +1729,84 @@ async function status(ctx: CommandContext): Promise<Record<string, unknown>> {
       scope: target.auth?.scope,
       source: process.env.BEEPER_ACCESS_TOKEN ? 'env' : target.auth?.source ?? (target.auth?.accessToken ? 'target' : 'none'),
     },
+    config: configStatus(config),
     live: await targetLiveStatus(target),
     readiness: await evaluateReadiness({ baseURL: target.baseURL, target: target.id }),
+    target: publicTarget(target),
+  }
+}
+
+async function authList(): Promise<Record<string, unknown>> {
+  const config = await readConfig()
+  const targets = await listTargets()
+  const rows = targets.length ? targets : [await resolveTarget({ target: builtInDesktopTargetID })]
+  return { accounts: rows.map(target => ({
+    authenticated: Boolean(target.auth?.accessToken),
+    baseURL: target.baseURL,
+    clientID: target.auth?.clientID,
+    default: config.defaultTarget ? config.defaultTarget === target.id : target.id === builtInDesktopTargetID,
+    expiresAt: target.auth?.expiresAt,
+    scope: target.auth?.scope,
+    source: target.auth?.source ?? 'none',
+    target: target.id,
+    tokenType: target.auth?.tokenType,
+    type: target.type,
+  })) }
+}
+
+async function authStatus(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const config = await readConfig()
+  const target = await resolveTarget({ target: ctx.args[0] ?? ctx.globalFlags.target })
+  return {
+    auth: {
+      authenticated: Boolean(process.env.BEEPER_ACCESS_TOKEN || target.auth?.accessToken),
+      clientID: target.auth?.clientID,
+      expiresAt: target.auth?.expiresAt,
+      scope: target.auth?.scope,
+      source: process.env.BEEPER_ACCESS_TOKEN ? 'env' : target.auth?.source ?? (target.auth?.accessToken ? 'target' : 'none'),
+      tokenType: process.env.BEEPER_ACCESS_TOKEN ? 'Bearer' : target.auth?.tokenType,
+    },
+    config: configStatus(config),
+    target: {
+      baseURL: target.baseURL,
+      default: config.defaultTarget ? config.defaultTarget === target.id : target.id === builtInDesktopTargetID,
+      id: target.id,
+      type: target.type,
+    },
+  }
+}
+
+function configStatus(config: Config): Record<string, unknown> {
+  return {
+    defaultAccount: config.defaultAccount ?? null,
+    defaultTarget: config.defaultTarget ?? builtInDesktopTargetID,
+    exists: existsSync(configPath()),
+    path: configPath(),
+  }
+}
+
+async function me(ctx: CommandContext): Promise<Record<string, unknown>> {
+  const config = await readConfig()
+  const target = await resolveTarget({ target: ctx.globalFlags.target })
+  const accountSelectors = stringListFlag(ctx.flags, 'account')
+  const request = {
+    accounts: accountSelectors,
+    defaultAccount: config.defaultAccount,
+    target: target.id,
+  }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'me', request }
+  const client = await apiClient(ctx)
+  const accountIDs = await resolveAccountIDs(client, accountSelectors, { allowMultiplePerInput: true, applyDefault: false })
+  const accounts = apiItems(await client.accounts.list())
+    .filter(row => !accountIDs?.length || accountIDs.includes(accountIDForRow(row)))
+    .map(row => ({ ...row, default: accountIDForRow(row) === config.defaultAccount || undefined }))
+  return {
+    accounts,
+    auth: {
+      authenticated: Boolean(process.env.BEEPER_ACCESS_TOKEN || target.auth?.accessToken),
+      source: process.env.BEEPER_ACCESS_TOKEN ? 'env' : target.auth?.source ?? (target.auth?.accessToken ? 'target' : 'none'),
+    },
+    defaultAccount: config.defaultAccount,
     target: publicTarget(target),
   }
 }
@@ -977,9 +1850,55 @@ async function exitCodes(): Promise<Record<string, unknown>> {
   }
 }
 
+async function agent(): Promise<Record<string, unknown>> {
+  return {
+    helpers: [
+      { command: 'agent exit-codes', description: 'Print stable exit codes for automation' },
+    ],
+  }
+}
+
+async function docs(ctx: CommandContext): Promise<Record<string, unknown> | string> {
+  const url = 'https://github.com/beeper/desktop-api-cli/tree/main/packages/cli'
+  if (ctx.flags.url || !ctx.globalFlags.json) return url
+  const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+  return {
+    url,
+    commands: join(root, 'docs', 'commands', 'README.md'),
+    package: join(root, 'README.md'),
+    relative_commands: 'docs/commands/README.md',
+  }
+}
+
+async function helpCommand(ctx: CommandContext): Promise<void> {
+  const target = commandForHelp(ctx.args, ctx.globalFlags)
+  process.stdout.write(target ? commandHelp(target, ctx.globalFlags) : help(ctx.globalFlags))
+}
+
 async function schema(ctx: CommandContext): Promise<Record<string, unknown>> {
   const pkg = await packageInfo()
-  return buildSchema(commands, String(pkg.version ?? '0'), ctx.args, ctx.globalFlags)
+  return buildSchema(commands, String(pkg.version ?? '0'), ctx.args, ctx.globalFlags, {
+    includeHidden: Boolean(ctx.flags['include-hidden']),
+  })
+}
+
+function commandForHelp(args: string[], globalFlags: GlobalFlags): CommandSpec | undefined {
+  const parts = args.flatMap(part => part.trim().split(/\s+/)).filter(Boolean)
+  if (!parts.length) return undefined
+  const exact = commands
+    .filter(command => commandVisible(command, globalFlags))
+    .find(command => commandPathVariants(command).some(path => path.length === parts.length && path.every((part, index) => part === parts[index])))
+  if (exact) return exact
+  const hasChildren = commands
+    .filter(command => commandVisible(command, globalFlags))
+    .some(command => commandPathVariants(command).some(path => parts.length < path.length && parts.every((part, index) => path[index] === part)))
+  if (!hasChildren) return undefined
+  return {
+    description: parts.length === 1 ? rootNamespaceDescription(parts[0]!) : `${parts.join(' ')} commands`,
+    path: parts,
+    risk: 'read',
+    run: async () => undefined,
+  }
 }
 
 async function mcp(ctx: CommandContext): Promise<void> {
@@ -987,9 +1906,13 @@ async function mcp(ctx: CommandContext): Promise<void> {
   await serveMcp(commands, ctx.globalFlags, {
     allowTools: stringListFlag(ctx.flags, 'allow-tool'),
     allowWrite: Boolean(ctx.flags['allow-write']),
+    httpHost: stringFlag(ctx.flags, 'http-host') ?? '127.0.0.1',
+    httpPath: stringFlag(ctx.flags, 'http-path') ?? '/mcp',
+    httpPort: numberFlag(ctx.flags, 'http-port', 7331),
     listTools: Boolean(ctx.flags['list-tools']),
     maxOutputBytes: numberFlag(ctx.flags, 'max-output-bytes', 102400),
     timeoutSeconds: numberFlag(ctx.flags, 'timeout-seconds', 60),
+    transport: stringFlag(ctx.flags, 'transport') === 'http' ? 'http' : 'stdio',
   }, String(pkg.version ?? '0'))
 }
 
@@ -999,14 +1922,18 @@ async function completion(ctx: CommandContext): Promise<void> {
   process.stdout.write(completionScript(shell))
 }
 
+async function completionShell(ctx: CommandContext): Promise<void> {
+  process.stdout.write(completionScript(ctx.commandPath[1] ?? ''))
+}
+
 async function configGet(ctx: CommandContext): Promise<Record<string, unknown>> {
   const key = parseConfigKey(ctx.args[0])
   const config = await readConfig()
   return { key, value: config[key] ?? null }
 }
 
-async function configKeysCommand(): Promise<string[]> {
-  return [...configKeys]
+async function configKeysCommand(): Promise<Record<string, unknown>> {
+  return { keys: [...configKeys] }
 }
 
 async function configList(): Promise<Record<string, unknown>> {
@@ -1055,14 +1982,14 @@ function unsetConfigKey(config: Config, key: ConfigKey): Config {
 async function completeCommand(ctx: CommandContext): Promise<void> {
   const cword = numberFlag(ctx.flags, 'cword', -1)
   const words = ctx.args.length ? ctx.args : ['beeper']
-  for (const item of completeWords(words, cword)) process.stdout.write(`${item}\n`)
+  for (const item of completeWords(words, cword, ctx.globalFlags)) process.stdout.write(`${item}\n`)
 }
 
-async function targetsList(): Promise<unknown[]> {
+async function targetsList(): Promise<Record<string, unknown>> {
   const config = await readConfig()
   const targets = await listTargets()
   const rows = targets.length ? targets : [await resolveTarget({ target: builtInDesktopTargetID })]
-  return Promise.all(rows.map(async target => ({
+  return { targets: await Promise.all(rows.map(async target => ({
     baseURL: target.baseURL,
     default: config.defaultTarget ? config.defaultTarget === target.id : target.id === builtInDesktopTargetID,
     id: target.id,
@@ -1070,7 +1997,7 @@ async function targetsList(): Promise<unknown[]> {
     name: target.name ?? target.id,
     type: target.type,
     ...await targetLiveStatus(target),
-  })))
+  }))) }
 }
 
 async function targetsAdd(ctx: CommandContext): Promise<Record<string, unknown>> {
@@ -1198,9 +2125,20 @@ async function accountsList(ctx: CommandContext): Promise<unknown> {
   const config = await readConfig()
   const rows = apiItems(await client.accounts.list())
   const items = rows
-    .filter(row => !selected?.length || selected.includes(String(row.accountID ?? row.id)))
-    .map(row => ({ ...row, default: (row.accountID ?? row.id) === config.defaultAccount || undefined }))
+    .filter(row => !selected?.length || selected.includes(accountIDForRow(row)))
+    .map(row => ({ ...row, default: accountIDForRow(row) === config.defaultAccount || undefined }))
   return ctx.flags.ids ? ids(items, 'accountID') : items
+}
+
+async function accountsShow(ctx: CommandContext): Promise<unknown> {
+  const selector = ctx.args[0]!
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'accounts.show', request: { selector } }
+  const client = await apiClient(ctx)
+  const accountID = await resolveAccountID(client, selector)
+  const config = await readConfig()
+  const item = apiItems(await client.accounts.list()).find(row => accountIDForRow(row) === accountID)
+  if (!item) throw new AbortError(`No account matches "${selector}"`, ExitCodes.NotFound, undefined, 'not_found')
+  return { ...item, default: accountID === config.defaultAccount || undefined }
 }
 
 async function useTarget(ctx: CommandContext): Promise<Record<string, unknown>> {
@@ -1290,6 +2228,28 @@ async function accountsAdd(ctx: CommandContext): Promise<unknown> {
   return undefined
 }
 
+async function authServices(ctx: CommandContext): Promise<unknown> {
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'auth.services', request: { target: ctx.globalFlags.target } }
+  const client = await apiClient(ctx)
+  const bridges = apiItems(await client.bridges.list())
+  const services = bridges.map(bridge => ({
+    bridge_id: bridge.id,
+    name: bridge.displayName ?? bridge.name ?? bridge.id,
+    provider: bridge.provider,
+    service: bridge.type ?? bridge.network ?? bridge.id,
+    status: bridge.status ?? 'available',
+    supports_multiple_accounts: bridge.supportsMultipleAccounts,
+  }))
+  if (ctx.globalFlags.json) return { services }
+  if (ctx.globalFlags.plain) return services
+  if (ctx.flags.markdown) {
+    printBridgeServicesMarkdown(services)
+    return undefined
+  }
+  printAvailableBridges(bridges)
+  return undefined
+}
+
 async function removeTargetCommand(ctx: CommandContext): Promise<Record<string, unknown>> {
   const input = ctx.args[0]!
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'remove.target', request: { id: input } }
@@ -1309,10 +2269,13 @@ async function removeAccount(ctx: CommandContext): Promise<Record<string, unknow
 }
 
 async function contactsList(ctx: CommandContext): Promise<unknown> {
+  const queryFlag = stringFlag(ctx.flags, 'query')
+  const queryArg = ctx.args[0]
+  if (queryFlag && queryArg) throw usage('--query and positional <query> cannot be combined')
+  const query = queryFlag ?? queryArg
   const client = await apiClient(ctx)
   const accountIDs = await resolveAccountIDs(client, stringListFlag(ctx.flags, 'account'), { allowMultiplePerInput: true }) ?? await listAccountIDs(client)
   const limit = numberFlag(ctx.flags, 'limit', 50)
-  const query = stringFlag(ctx.flags, 'query')
   const items: Array<Record<string, unknown>> = []
   for (const accountID of accountIDs) {
     const remaining = limit - items.length
@@ -1323,12 +2286,41 @@ async function contactsList(ctx: CommandContext): Promise<unknown> {
   return ctx.flags.ids ? ids(items, 'userID') : items
 }
 
+async function contactsShow(ctx: CommandContext): Promise<unknown> {
+  const selectorArg = ctx.args[0]
+  const jid = stringFlag(ctx.flags, 'jid')
+  if (selectorArg && jid) throw usage('--jid and positional <selector> cannot be combined')
+  const selector = jid ?? selectorArg
+  if (!selector) throw usage('contacts show requires <selector> or --jid')
+  const request = {
+    accounts: stringListFlag(ctx.flags, 'account'),
+    jid,
+    limit: numberFlag(ctx.flags, 'limit', 10),
+    pick: ctx.flags.pick,
+    selector,
+  }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'contacts.show', request }
+  const client = await apiClient(ctx)
+  const candidates = await contactCandidates(client, selector, stringListFlag(ctx.flags, 'account'), request.limit)
+  if (!candidates.length) throw new AbortError(`No contact matches "${selector}"`, ExitCodes.NotFound, undefined, 'not_found')
+  const pick = numberFlag(ctx.flags, 'pick', 0)
+  if (pick) {
+    const selected = candidates[pick - 1]
+    if (!selected) throw new AbortError(`--pick ${pick} is out of range; ${candidates.length} candidate(s) available`, ExitCodes.NotFound, undefined, 'not_found')
+    return selected
+  }
+  if (candidates.length > 1) {
+    throw new AbortError(`Ambiguous contact "${selector}". Use --pick N:\n${candidates.map((contact, index) => `  ${index + 1}. ${contactLabel(contact)}`).join('\n')}`, ExitCodes.Ambiguous, undefined, 'ambiguous_selector')
+  }
+  return candidates[0]
+}
+
 async function chatsList(ctx: CommandContext): Promise<unknown> {
   const client = await apiClient(ctx)
   const accountIDs = await resolveAccountIDs(client, stringListFlag(ctx.flags, 'account'), { allowMultiplePerInput: true })
   const query = stringFlag(ctx.flags, 'query')
   if (query) {
-    const items = (await collectPage(client.chats.search({ accountIDs, query }), numberFlag(ctx.flags, 'limit', 20)))
+    const items = (await collectPage(client.chats.search({ accountIDs, query }), numberFlag(ctx.flags, 'limit', 50)))
       .map(apiRecord)
       .filter(row => matchesChatFilters(row, ctx))
     return ctx.flags.ids ? ids(items, 'localChatID') : items
@@ -1337,15 +2329,33 @@ async function chatsList(ctx: CommandContext): Promise<unknown> {
   for await (const item of client.chats.list({ accountIDs })) {
     const row = apiRecord(item)
     if (matchesChatFilters(row, ctx)) items.push(row)
-    if (items.length >= numberFlag(ctx.flags, 'limit', 20)) break
+    if (items.length >= numberFlag(ctx.flags, 'limit', 50)) break
   }
   return ctx.flags.ids ? ids(items, 'localChatID') : items
 }
 
+async function groupsList(ctx: CommandContext): Promise<unknown> {
+  return chatsList({ ...ctx, flags: { ...ctx.flags, type: 'group' } })
+}
+
 async function chatsShow(ctx: CommandContext): Promise<unknown> {
   const client = await apiClient(ctx)
-  const chatID = await resolveChatID(client, stringFlag(ctx.flags, 'chat')!, chatResolutionOptions(ctx))
+  const flagChat = stringFlag(ctx.flags, 'chat')
+  const positionalChat = ctx.args[0]
+  if (flagChat && positionalChat) throw usage('--chat and positional <chat> cannot be combined')
+  const chat = flagChat ?? positionalChat
+  if (!chat) throw usage('chats show requires --chat or <chat>')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   return client.chats.retrieve(chatID, { maxParticipantCount: numberFlag(ctx.flags, 'max-participants', 0) || undefined })
+}
+
+async function groupsShow(ctx: CommandContext): Promise<unknown> {
+  const flagJid = stringFlag(ctx.flags, 'jid')
+  const positionalJid = ctx.args[0]
+  if (flagJid && positionalJid) throw usage('--jid and positional <jid> cannot be combined')
+  const jid = flagJid ?? positionalJid
+  if (!jid) throw usage('groups show requires --jid or <jid>')
+  return chatsShow({ ...ctx, args: [], flags: { ...ctx.flags, chat: jid } })
 }
 
 async function chatsStart(ctx: CommandContext): Promise<unknown> {
@@ -1360,18 +2370,58 @@ async function chatsStart(ctx: CommandContext): Promise<unknown> {
   return client.chats.start(payload)
 }
 
-async function chatsUpdate(ctx: CommandContext, op: string, update: Record<string, unknown>): Promise<unknown> {
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: `chats.${op}`, request: { chat: stringFlag(ctx.flags, 'chat'), pick: ctx.flags.pick, ...update } }
+async function groupsCreate(ctx: CommandContext): Promise<unknown> {
+  const users = stringListFlag(ctx.flags, 'user')
+  if (!users.length) throw usage('groups create requires at least one --user')
+  const account = stringFlag(ctx.flags, 'account')
+  const title = stringFlag(ctx.flags, 'name')!
+  const messageText = stringFlag(ctx.flags, 'message')
+  const participantIDs = users.map(user => user.trim()).filter(Boolean)
+  if (!participantIDs.length) throw usage('groups create requires at least one non-empty --user')
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'groups.create', request: { account, messageText, participantIDs, title } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const accountID = account ? await resolveAccountID(client, account) : await defaultAccountID(client)
+  return client.chats.create({ accountID, messageText, participantIDs, title, type: 'group' })
+}
+
+async function groupsRename(ctx: CommandContext): Promise<unknown> {
+  return chatsUpdate({ ...ctx, args: [], flags: { ...ctx.flags, chat: groupSelector(ctx), title: stringFlag(ctx.flags, 'name') } }, 'rename', { title: stringFlag(ctx.flags, 'name') })
+}
+
+async function groupsDescription(ctx: CommandContext): Promise<unknown> {
+  return chatsDescription({ ...ctx, args: [], flags: { ...ctx.flags, chat: groupSelector(ctx), description: stringFlag(ctx.flags, 'description') ?? stringFlag(ctx.flags, 'topic') } })
+}
+
+function groupSelector(ctx: CommandContext): string {
+  const flagJid = stringFlag(ctx.flags, 'jid')
+  const positionalJid = ctx.args[0]
+  if (flagJid && positionalJid) throw usage('--jid and positional <jid> cannot be combined')
+  const jid = flagJid ?? positionalJid
+  if (!jid) throw usage(`${ctx.commandPath.join(' ')} requires --jid or <jid>`)
+  return jid
+}
+
+async function chatsUpdate(ctx: CommandContext, op: string, update: Record<string, unknown>): Promise<unknown> {
+  const chat = chatSelector(ctx)
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: `chats.${op}`, request: { chat, pick: ctx.flags.pick, ...update } }
+  const client = await apiClient(ctx)
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   return client.chats.update(chatID, update)
 }
 
 async function chatsSetFlag(ctx: CommandContext): Promise<unknown> {
   const action = ctx.commandPath[1] ?? ''
-  const field = ({ archive: 'isArchived', mute: 'isMuted', pin: 'isPinned' } as const)[action]
-  if (!field) throw usage(`Unsupported chat command: ${ctx.commandPath.join(' ')}`)
-  return chatsUpdate(ctx, action, { [field]: !ctx.flags.clear })
+  const spec = ({
+    archive: ['isArchived', true],
+    mute: ['isMuted', true],
+    pin: ['isPinned', true],
+    unarchive: ['isArchived', false],
+    unmute: ['isMuted', false],
+    unpin: ['isPinned', false],
+  } as const)[action]
+  if (!spec) throw usage(`Unsupported chat command: ${ctx.commandPath.join(' ')}`)
+  const [field, defaultValue] = spec
+  return chatsUpdate(ctx, action, { [field]: ctx.flags.clear ? false : defaultValue })
 }
 
 async function chatsRename(ctx: CommandContext): Promise<unknown> {
@@ -1395,72 +2445,91 @@ async function chatsAvatar(ctx: CommandContext): Promise<unknown> {
 async function chatsPriority(ctx: CommandContext): Promise<unknown> {
   const level = stringFlag(ctx.flags, 'level')!
   const update = level === 'inbox' ? { isArchived: false, isLowPriority: false } : { isLowPriority: true }
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.priority', request: { chat: stringFlag(ctx.flags, 'chat'), level, pick: ctx.flags.pick, update } }
+  const chat = chatSelector(ctx)
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.priority', request: { chat, level, pick: ctx.flags.pick, update } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   return client.chats.update(chatID, update)
 }
 
 async function chatsRead(ctx: CommandContext): Promise<unknown> {
   const messageID = stringFlag(ctx.flags, 'message')
-  const read = !ctx.flags.unread
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.read', request: { chat: stringFlag(ctx.flags, 'chat'), messageID, pick: ctx.flags.pick, read } }
+  const read = ctx.commandPath[1] === 'mark-unread' ? false : !ctx.flags.unread
+  const chat = chatSelector(ctx)
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.read', request: { chat, messageID, pick: ctx.flags.pick, read } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   return read ? client.chats.markRead(chatID, { messageID }) : client.chats.markUnread(chatID, { messageID })
 }
 
 async function chatsDraft(ctx: CommandContext): Promise<unknown> {
   const clear = Boolean(ctx.flags.clear)
+  const chat = chatSelector(ctx)
   if (!clear && ctx.flags.text === undefined) throw usage('Provide --text TEXT, optionally with --file PATH, or --clear.')
   if (clear && (ctx.flags.text !== undefined || ctx.flags.file)) throw usage('--clear cannot be combined with --text or --file.')
   if (clear) {
-    if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.draft', request: { chat: stringFlag(ctx.flags, 'chat'), draft: null, pick: ctx.flags.pick } }
+    if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.draft', request: { chat, draft: null, pick: ctx.flags.pick } }
     const client = await apiClient(ctx)
-    const chatID = await chatIDFromFlag(client, ctx, 'chat')
+    const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
     return client.chats.update(chatID, { draft: null })
   }
   const draft = { file: stringFlag(ctx.flags, 'file'), fileName: stringFlag(ctx.flags, 'filename'), mimeType: stringFlag(ctx.flags, 'mime'), text: stringFlag(ctx.flags, 'text') }
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.draft', request: { chat: stringFlag(ctx.flags, 'chat'), draft, pick: ctx.flags.pick } }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.draft', request: { chat, draft, pick: ctx.flags.pick } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   const upload = draft.file ? await client.assets.upload({ file: createReadStream(draft.file), fileName: draft.fileName, mimeType: draft.mimeType }) : undefined
   return client.chats.update(chatID, { draft: { text: draft.text, attachments: upload?.uploadID ? { [upload.uploadID]: upload } : undefined } })
 }
 
 async function chatsRemind(ctx: CommandContext): Promise<unknown> {
+  const chat = chatSelector(ctx)
   if (ctx.flags.clear) {
     if (ctx.flags.when || ctx.flags['dismiss-on-message']) throw usage('--clear cannot be combined with --when or --dismiss-on-message')
-    if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.remind', request: { chat: stringFlag(ctx.flags, 'chat'), pick: ctx.flags.pick, reminder: null } }
+    if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.remind', request: { chat, pick: ctx.flags.pick, reminder: null } }
     const client = await apiClient(ctx)
-    const chatID = await chatIDFromFlag(client, ctx, 'chat')
+    const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
     await client.chats.reminders.delete(chatID)
     return { chatID, reminderCleared: true }
   }
   const when = requiredStringFlag(ctx.flags, 'when')
   const reminder = { dismissOnIncomingMessage: Boolean(ctx.flags['dismiss-on-message']) || undefined, remindAt: when }
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.remind', request: { chat: stringFlag(ctx.flags, 'chat'), pick: ctx.flags.pick, reminder } }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.remind', request: { chat, pick: ctx.flags.pick, reminder } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   await client.chats.reminders.create(chatID, { reminder })
   return { chatID, remindAt: when, reminderSet: true }
 }
 
 async function chatsDisappear(ctx: CommandContext): Promise<unknown> {
-  const raw = requiredStringFlag(ctx.flags, 'seconds').toLowerCase()
-  const messageExpirySeconds = raw === 'off' ? null : /^\d+$/.test(raw) ? Number(raw) : NaN
-  if (messageExpirySeconds !== null && (!Number.isSafeInteger(messageExpirySeconds) || messageExpirySeconds < 0)) throw usage('--seconds must be a positive integer or "off"')
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.disappear', request: { chat: stringFlag(ctx.flags, 'chat'), messageExpirySeconds, pick: ctx.flags.pick } }
+  const messageExpirySeconds = parseDisappearSeconds(requiredStringFlag(ctx.flags, 'seconds'))
   return chatsUpdate(ctx, 'disappear', { messageExpirySeconds })
 }
 
+function parseDisappearSeconds(value: string): number | null {
+  const raw = value.trim().toLowerCase()
+  if (raw === 'off') return null
+  if (/^\d+$/.test(raw)) {
+    const seconds = Number(raw)
+    if (Number.isSafeInteger(seconds) && seconds >= 0) return seconds
+  }
+  const match = raw.match(/^(\d+)(s|m|h|d)$/)
+  if (match) {
+    const amount = Number(match[1])
+    const factors: Record<string, number> = { d: 86_400, h: 3_600, m: 60, s: 1 }
+    const seconds = amount * factors[match[2]!]!
+    if (Number.isSafeInteger(seconds) && seconds >= 0) return seconds
+  }
+  throw usage('--seconds must be a positive integer, a duration like 24h/7d/90d, or "off"')
+}
+
 async function chatsFocus(ctx: CommandContext): Promise<unknown> {
+  const chat = ctx.args[0] ?? stringFlag(ctx.flags, 'chat')
   if (ctx.globalFlags.dryRun) {
     return {
       dry_run: true,
       op: 'chats.focus',
       request: {
-        chat: stringFlag(ctx.flags, 'chat'),
+        chat,
         draftAttachmentPath: stringFlag(ctx.flags, 'file'),
         draftText: stringFlag(ctx.flags, 'text'),
         messageID: stringFlag(ctx.flags, 'message'),
@@ -1469,7 +2538,8 @@ async function chatsFocus(ctx: CommandContext): Promise<unknown> {
     }
   }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  if (!chat) throw usage('chats focus requires --chat or chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   const request = {
     chatID,
     draftAttachmentPath: stringFlag(ctx.flags, 'file'),
@@ -1480,10 +2550,37 @@ async function chatsFocus(ctx: CommandContext): Promise<unknown> {
 }
 
 async function chatsNotifyAnyway(ctx: CommandContext): Promise<unknown> {
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.notify-anyway', request: { chat: stringFlag(ctx.flags, 'chat'), pick: ctx.flags.pick } }
+  const chat = chatSelector(ctx)
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'chats.notify-anyway', request: { chat, pick: ctx.flags.pick } }
   const client = await apiClient(ctx)
-  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const chatID = await resolveChatID(client, chat, chatResolutionOptions(ctx))
   return client.chats.notifyAnyway(chatID)
+}
+
+function chatSelector(ctx: CommandContext): string {
+  const flagChat = stringFlag(ctx.flags, 'chat')
+  const positionalChat = ctx.args[0]
+  if (flagChat && positionalChat) throw usage('--chat and positional <chat> cannot be combined')
+  const chat = flagChat ?? positionalChat
+  if (!chat) throw usage(`${ctx.commandPath.join(' ')} requires --chat or <chat>`)
+  return chat
+}
+
+async function unifiedSearch(ctx: CommandContext): Promise<unknown> {
+  const query = ctx.args[0]!
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'search.all', request: { query } }
+  const client = await apiClient(ctx)
+  const result = await client.search({ query }) as Record<string, unknown>
+  if (ctx.globalFlags.json || ctx.globalFlags.plain) return result
+  const results = isRecord(result.results) ? result.results : {}
+  const messages = isRecord(results.messages) ? results.messages : {}
+  return {
+    chats: Array.isArray(results.chats) ? results.chats.length : 0,
+    in_groups: Array.isArray(results.in_groups) ? results.in_groups.length : 0,
+    messages: Array.isArray(messages.items) ? messages.items.length : 0,
+    has_more_messages: messages.hasMore,
+    query,
+  }
 }
 
 async function resolveAccount(ctx: CommandContext): Promise<unknown> {
@@ -1527,16 +2624,7 @@ async function resolveChat(ctx: CommandContext): Promise<unknown> {
 async function resolveContact(ctx: CommandContext): Promise<unknown> {
   const selector = ctx.args[0]!
   const client = await apiClient(ctx)
-  const accountIDs = await resolveAccountIDs(client, stringListFlag(ctx.flags, 'account'), { allowMultiplePerInput: true }) ?? await listAccountIDs(client)
-  const candidates: Record<string, unknown>[] = []
-  for (const accountID of accountIDs) {
-    try {
-      const result = await client.accounts.contacts.search(accountID, { query: selector })
-      candidates.push(...apiItems(result).slice(0, numberFlag(ctx.flags, 'limit', 10)).map(item => ({ ...item, accountID })))
-    } catch (error) {
-      if (!ignorableLookupError(error)) throw error
-    }
-  }
+  const candidates = await contactCandidates(client, selector, stringListFlag(ctx.flags, 'account'), numberFlag(ctx.flags, 'limit', 10))
   return resolution(ctx, 'contact', selector, candidates.map(contact => ({
     accountID: contact.accountID,
     displayName: contact.displayName ?? contact.fullName ?? contact.name,
@@ -1545,6 +2633,26 @@ async function resolveContact(ctx: CommandContext): Promise<unknown> {
     phoneNumber: contact.phoneNumber,
     username: contact.username,
   })))
+}
+
+async function contactCandidates(client: any, selector: string, accountSelectors: string[], limit: number): Promise<Record<string, unknown>[]> {
+  const accountIDs = await resolveAccountIDs(client, accountSelectors, { allowMultiplePerInput: true }) ?? await listAccountIDs(client)
+  const candidates: Record<string, unknown>[] = []
+  for (const accountID of accountIDs) {
+    try {
+      const result = await client.accounts.contacts.search(accountID, { query: selector })
+      candidates.push(...apiItems(result).slice(0, limit).map(item => ({ ...item, accountID })))
+    } catch (error) {
+      if (!ignorableLookupError(error)) throw error
+    }
+  }
+  return candidates.slice(0, limit)
+}
+
+function contactLabel(contact: Record<string, unknown>): string {
+  const name = contact.displayName ?? contact.fullName ?? contact.name ?? contact.username ?? contact.id ?? contact.userID
+  const account = contact.accountID ? ` (${String(contact.accountID)})` : ''
+  return `${String(name ?? 'contact')}${account}`
 }
 
 async function resolveTargetCommand(ctx: CommandContext): Promise<unknown> {
@@ -1595,6 +2703,30 @@ async function resolveBridge(ctx: CommandContext): Promise<unknown> {
 }
 
 async function messagesList(ctx: CommandContext): Promise<unknown> {
+  const items = await collectListedMessages(ctx)
+  return ctx.flags.ids ? ids(items.map(apiRecord), 'messageID') : items
+}
+
+async function messagesExport(ctx: CommandContext): Promise<unknown> {
+  const request = {
+    afterCursor: stringFlag(ctx.flags, 'after-cursor'),
+    asc: Boolean(ctx.flags.asc),
+    beforeCursor: stringFlag(ctx.flags, 'before-cursor'),
+    chat: stringFlag(ctx.flags, 'chat'),
+    limit: numberFlag(ctx.flags, 'limit', 1000),
+    output: stringFlag(ctx.flags, 'output'),
+    pick: ctx.flags.pick,
+    sender: messageSenderFilter(ctx),
+  }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'messages.export', request }
+  const items = await collectListedMessages(ctx)
+  const out = stringFlag(ctx.flags, 'output')
+  if (!out) return items
+  await writeFile(out, `${JSON.stringify(items, null, 2)}\n`)
+  return { count: items.length, path: out }
+}
+
+async function collectListedMessages(ctx: CommandContext): Promise<unknown[]> {
   const chat = stringFlag(ctx.flags, 'chat')!
   const before = stringFlag(ctx.flags, 'before-cursor')
   const after = stringFlag(ctx.flags, 'after-cursor')
@@ -1604,26 +2736,96 @@ async function messagesList(ctx: CommandContext): Promise<unknown> {
   let items = await collectMessages(client.messages.list(chatID, {
     cursor: before ?? after,
     direction: before ? 'before' : after ? 'after' : undefined,
-  }), numberFlag(ctx.flags, 'limit', 50), stringFlag(ctx.flags, 'sender'))
+  }), numberFlag(ctx.flags, 'limit', 50), messageListFilter(ctx))
   if (ctx.flags.asc) items = [...items].reverse()
-  return ctx.flags.ids ? ids(items.map(apiRecord), 'messageID') : items
+  return items
 }
 
 async function messagesContext(ctx: CommandContext): Promise<unknown> {
-  const id = stringFlag(ctx.flags, 'id')!
+  const id = messageID(ctx)
+  const showOnly = ctx.commandPath[1] === 'show'
+  const beforeCount = showOnly ? 0 : numberFlag(ctx.flags, 'before', 10)
+  const afterCount = showOnly ? 0 : numberFlag(ctx.flags, 'after', 10)
   if (ctx.globalFlags.dryRun) {
-    return { dry_run: true, op: 'messages.context', request: { after: numberFlag(ctx.flags, 'after', 10), before: numberFlag(ctx.flags, 'before', 10), chat: stringFlag(ctx.flags, 'chat'), messageID: id, pick: ctx.flags.pick } }
+    return { dry_run: true, op: showOnly ? 'messages.show' : 'messages.context', request: { after: afterCount, before: beforeCount, chat: stringFlag(ctx.flags, 'chat'), messageID: id, pick: ctx.flags.pick } }
   }
   const client = await apiClient(ctx)
   const chatID = await chatIDFromFlag(client, ctx, 'chat')
   const message = client.messages.retrieve ? await client.messages.retrieve(id, { chatID }) : undefined
-  const before = await collectPage(client.messages.list(chatID, { cursor: id, direction: 'before' }), numberFlag(ctx.flags, 'before', 10))
-  const after = await collectPage(client.messages.list(chatID, { cursor: id, direction: 'after' }), numberFlag(ctx.flags, 'after', 10))
+  if (showOnly) return { chatID, message, messageID: id }
+  const before = await collectPage(client.messages.list(chatID, { cursor: id, direction: 'before' }), beforeCount)
+  const after = await collectPage(client.messages.list(chatID, { cursor: id, direction: 'after' }), afterCount)
   return { after, before, chatID, message, messageID: id }
 }
 
+async function messagesForward(ctx: CommandContext): Promise<unknown> {
+  const id = messageID(ctx)
+  const to = stringFlag(ctx.flags, 'to')!
+  const attachmentIndex = numberFlag(ctx.flags, 'attachment-index', 1)
+  if (attachmentIndex <= 0) throw usage('--attachment-index must be a positive integer')
+  const delivery = sendDelivery(ctx)
+  const request = {
+    attachmentIndex,
+    chat: stringFlag(ctx.flags, 'chat'),
+    messageID: id,
+    pick: ctx.flags.pick,
+    to,
+    wait: delivery.wait,
+    waitTimeoutMs: delivery.waitTimeoutMs,
+  }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'messages.forward', request }
+
+  const client = await apiClient(ctx)
+  const sourceChatID = await chatIDFromFlag(client, ctx, 'chat')
+  const targetChatID = await resolveChatID(client, to, chatResolutionOptions(ctx))
+  const message = await client.messages.retrieve(id, { chatID: sourceChatID }) as Record<string, unknown>
+  const payload = await forwardPayload(client, message, attachmentIndex)
+  const sent = await sendMessage(client, { ...payload, chatID: targetChatID, ...delivery })
+  return { forwarded: true, sourceChatID, sourceMessageID: id, targetChatID, ...sent }
+}
+
+async function forwardPayload(client: any, message: Record<string, unknown>, attachmentIndex: number): Promise<SendPayload> {
+  const text = typeof message.text === 'string' ? message.text : ''
+  const attachments = Array.isArray(message.attachments) ? message.attachments as Array<Record<string, unknown>> : []
+  if (!attachments.length) {
+    if (!text) throw usage('source message has no text or forwardable attachment')
+    return { text }
+  }
+
+  const attachment = attachments[attachmentIndex - 1]
+  if (!attachment) throw usage(`source message has no attachment at index ${attachmentIndex}`)
+  const url = typeof attachment.id === 'string' ? attachment.id : typeof attachment.srcURL === 'string' ? attachment.srcURL : undefined
+  if (!url) throw usage(`source message attachment ${attachmentIndex} has no forwardable URL`)
+  const response = url.startsWith('mxc://') || url.startsWith('localmxc://')
+    ? await client.assets.serve({ url })
+    : await fetch(url)
+  if (!response.ok) throw usage(`failed to fetch source attachment: HTTP ${response.status}`)
+  const buffer = Buffer.from(await response.arrayBuffer())
+  const upload = await client.assets.uploadBase64({
+    content: buffer.toString('base64'),
+    fileName: typeof attachment.fileName === 'string' ? attachment.fileName : undefined,
+    mimeType: typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined,
+  })
+  if (!upload?.uploadID) throw new Error('Forward upload did not return an uploadID')
+  const attachmentType = forwardAttachmentType(attachment)
+  return {
+    attachmentType,
+    duration: typeof attachment.duration === 'number' ? attachment.duration : upload.duration,
+    fileName: upload.fileName ?? (typeof attachment.fileName === 'string' ? attachment.fileName : undefined),
+    mimeType: upload.mimeType ?? (typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined),
+    text,
+    forwardedUpload: upload,
+  }
+}
+
+function forwardAttachmentType(attachment: Record<string, unknown>): AttachmentType | undefined {
+  if (attachment.isSticker) return 'sticker'
+  if (attachment.isVoiceNote) return 'voice-note'
+  return undefined
+}
+
 async function messagesEdit(ctx: CommandContext): Promise<unknown> {
-  const id = stringFlag(ctx.flags, 'id')!
+  const id = messageID(ctx)
   const text = stringFlag(ctx.flags, 'message')!
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'messages.edit', request: { chat: stringFlag(ctx.flags, 'chat'), messageID: id, pick: ctx.flags.pick, text } }
   const client = await apiClient(ctx)
@@ -1632,13 +2834,23 @@ async function messagesEdit(ctx: CommandContext): Promise<unknown> {
 }
 
 async function messagesDelete(ctx: CommandContext): Promise<unknown> {
-  const id = stringFlag(ctx.flags, 'id')!
-  const forEveryone = Boolean(ctx.flags['for-everyone'])
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'messages.delete', request: { chat: stringFlag(ctx.flags, 'chat'), forEveryone, messageID: id, pick: ctx.flags.pick } }
+  const id = messageID(ctx)
+  const revoke = ctx.commandPath[1] === 'revoke'
+  const forEveryone = revoke || Boolean(ctx.flags['for-everyone'])
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: revoke ? 'messages.revoke' : 'messages.delete', request: { chat: stringFlag(ctx.flags, 'chat'), forEveryone, messageID: id, pick: ctx.flags.pick } }
   const client = await apiClient(ctx)
   const chatID = await chatIDFromFlag(client, ctx, 'chat')
   await client.messages.delete(id, { chatID, forEveryone: forEveryone || undefined })
   return { chatID, deleted: true, forEveryone, messageID: id }
+}
+
+function messageID(ctx: CommandContext): string {
+  const flagID = stringFlag(ctx.flags, 'id')
+  const positionalID = ctx.args[0]
+  if (flagID && positionalID) throw usage('--id and positional <id> cannot be combined')
+  const id = flagID ?? positionalID
+  if (!id) throw usage(`${ctx.commandPath.join(' ')} requires --id or <id>`)
+  return id
 }
 
 async function watch(ctx: CommandContext): Promise<void> {
@@ -1695,13 +2907,14 @@ async function watch(ctx: CommandContext): Promise<void> {
 }
 
 async function mediaDownload(ctx: CommandContext): Promise<unknown> {
-  const url = ctx.args[0]
-  if (!url) throw usage('media download requires url')
   const out = stringFlag(ctx.flags, 'out') ?? '.'
-  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'media.download', request: { out, url } }
+  if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'media.download', request: { ...mediaDownloadDryRunRequest(ctx), out } }
+  const request = await mediaDownloadRequest(ctx)
 
   const client = await apiClient(ctx)
-  const response = await client.assets.serve({ url })
+  const response = request.url.startsWith('mxc://') || request.url.startsWith('localmxc://')
+    ? await client.assets.serve({ url: request.url })
+    : await fetch(request.url)
   if (!response.ok) throw usage(`Failed to download media: HTTP ${response.status}`)
   const buffer = Buffer.from(await response.arrayBuffer())
   if (out === '-') {
@@ -1709,10 +2922,92 @@ async function mediaDownload(ctx: CommandContext): Promise<unknown> {
     return undefined
   }
 
-  await mkdir(out, { recursive: true })
-  const path = join(out, basename(new URL(url).pathname) || 'media')
+  const path = outputPath(out, request.fileName || fileNameFromURL(request.url, request.mimeType))
+  await mkdir(dirname(path), { recursive: true })
   await writeFile(path, buffer)
-  return { bytes: buffer.length, path }
+  return { bytes: buffer.length, messageID: request.messageID, path, url: request.url }
+}
+
+function mediaDownloadDryRunRequest(ctx: CommandContext): Record<string, unknown> {
+  const messageID = mediaMessageID(ctx)
+  if (messageID) {
+    return { chat: stringFlag(ctx.flags, 'chat'), index: numberFlag(ctx.flags, 'index', 1), messageID, poster: Boolean(ctx.flags.poster) }
+  }
+  const url = ctx.args[0]
+  if (!url) throw usage('media download requires <url> or --id with --chat')
+  return { url }
+}
+
+async function mediaDownloadRequest(ctx: CommandContext): Promise<{ fileName?: string; messageID?: string; mimeType?: string; url: string }> {
+  const messageID = mediaMessageID(ctx)
+  if (!messageID) {
+    const url = ctx.args[0]
+    if (!url) throw usage('media download requires <url> or --id with --chat')
+    return { url }
+  }
+  const chat = stringFlag(ctx.flags, 'chat')
+  if (!chat) throw usage('--chat is required when --id is used')
+  const index = numberFlag(ctx.flags, 'index', 1)
+  if (index <= 0) throw usage('--index must be a positive integer')
+  const client = await apiClient(ctx)
+  const chatID = await chatIDFromFlag(client, ctx, 'chat')
+  const message = await client.messages.retrieve(messageID, { chatID }) as { attachments?: Array<Record<string, unknown>> }
+  const attachment = message.attachments?.[index - 1]
+  if (!attachment) throw usage(`message "${messageID}" has no attachment at index ${index}`)
+  const source = ctx.flags.poster ? attachment.posterImg : attachment.id ?? attachment.srcURL
+  if (typeof source !== 'string' || !source) throw usage(`message "${messageID}" attachment ${index} has no downloadable URL`)
+  return {
+    fileName: typeof attachment.fileName === 'string' ? attachment.fileName : undefined,
+    messageID,
+    mimeType: typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined,
+    url: source,
+  }
+}
+
+function mediaMessageID(ctx: CommandContext): string | undefined {
+  const flagID = stringFlag(ctx.flags, 'id')
+  const isMessageCommand = ctx.commandPath.join(' ') === 'media message'
+  if (flagID && !isMessageCommand && ctx.args[0]) throw usage('Use either positional <url> or --id, not both')
+  const positionalID = isMessageCommand ? ctx.args[0] : undefined
+  if (flagID && positionalID) throw usage('--id and positional <id> cannot be combined')
+  return flagID ?? positionalID
+}
+
+function outputPath(out: string, fileName: string): string {
+  if (out.endsWith('/') || out === '.' || out === '..') return join(out, safeFileName(fileName))
+  try {
+    const parsed = new URL(out)
+    if (parsed.protocol === 'file:') return fileURLToPath(parsed)
+  } catch { /* not a URL */ }
+  return out.includes('.') ? out : join(out, safeFileName(fileName))
+}
+
+function fileNameFromURL(url: string, mimeType?: string): string {
+  try {
+    const parsed = new URL(url)
+    const name = basename(parsed.pathname)
+    if (name) return name
+  } catch { /* fall through */ }
+  return `media${extensionForMimeType(mimeType)}`
+}
+
+function safeFileName(value: string): string {
+  const normalized = basename(value).replace(/[/\\?%*:|"<>]+/g, '_').trim()
+  return normalized.slice(0, 160) || 'media'
+}
+
+function extensionForMimeType(mimeType?: string): string {
+  if (!mimeType) return ''
+  const known: Record<string, string> = {
+    'audio/mpeg': '.mp3',
+    'image/gif': '.gif',
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'video/mp4': '.mp4',
+  }
+  if (known[mimeType]) return known[mimeType]!
+  const subtype = mimeType.split('/')[1]
+  return subtype && !subtype.includes('+') ? `.${subtype}` : ''
 }
 
 async function exportCommand(ctx: CommandContext): Promise<unknown> {
@@ -1757,6 +3052,7 @@ async function messagesSearch(ctx: CommandContext): Promise<unknown> {
   const accountSelectors = stringListFlag(ctx.flags, 'account')
   const chatSelectors = stringListFlag(ctx.flags, 'chat')
   const mediaTypes = stringListFlag(ctx.flags, 'media') as Array<'any' | 'video' | 'image' | 'link' | 'file'>
+  if (ctx.flags['has-media'] && !mediaTypes.includes('any')) mediaTypes.unshift('any')
   const hasFilter = Boolean(
     accountSelectors.length || chatSelectors.length || ctx.flags['chat-type']
     || ctx.flags.after || ctx.flags.before || mediaTypes.length || ctx.flags.sender,
@@ -1798,27 +3094,52 @@ async function apiCommand(ctx: CommandContext): Promise<unknown> {
 }
 
 async function sendTextLike(ctx: CommandContext): Promise<unknown> {
-  const kind = ctx.commandPath[1]
+  const kind = ctx.commandPath.length === 1 && ctx.commandPath[0] === 'send' ? 'text' : ctx.commandPath[1]
   if (kind !== 'file' && kind !== 'sticker' && kind !== 'text' && kind !== 'voice') throw usage(`Unsupported send command: ${ctx.commandPath.join(' ')}`)
-  const to = stringFlag(ctx.flags, 'to')!
+  const to = sendDestination(ctx)
   const payload = await sendPayload(ctx, kind)
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: `send.${kind}`, request: { chat: to, ...payload } }
 
   const client = await apiClient(ctx)
   const chatID = await resolveChatID(client, to, chatResolutionOptions(ctx))
-  return sendMessage(client, { ...payload, chatID })
+  const ephemeral = await applySendEphemeral(client, chatID, payload)
+  const sent = await sendMessage(client, { ...payload, chatID })
+  return ephemeral ? { ...sent, ephemeral } : sent
+}
+
+async function uploadFile(ctx: CommandContext): Promise<unknown> {
+  if (stringFlag(ctx.flags, 'file')) throw usage('Use positional <localPath> with upload, not --file')
+  return sendTextLike({
+    ...ctx,
+    args: [],
+    commandPath: ['send', 'file'],
+    flags: { ...ctx.flags, file: ctx.args[0] },
+  })
+}
+
+function sendDestination(ctx: CommandContext): string {
+  const flagValue = stringFlag(ctx.flags, 'to')
+  const positional = isTextSend(ctx) ? ctx.args[0] : undefined
+  if (flagValue && positional) throw usage('--to and positional <to> cannot be combined')
+  const to = flagValue ?? positional
+  if (!to) throw usage('--to is required')
+  return to
+}
+
+function isTextSend(ctx: CommandContext): boolean {
+  return (ctx.commandPath.length === 1 && ctx.commandPath[0] === 'send') || ctx.commandPath[1] === 'text'
 }
 
 async function sendMessage(client: any, options: SendPayload & {
   chatID: string
 }): Promise<Record<string, unknown>> {
-  const uploaded = options.file
+  const uploaded = options.forwardedUpload ?? (options.file
     ? await client.assets.upload({
       file: createReadStream(options.file),
       fileName: options.fileName,
       mimeType: options.mimeType,
     })
-    : undefined
+    : undefined)
 
   if (options.file && !uploaded?.uploadID) throw new Error('Upload did not return an uploadID')
 
@@ -1857,6 +3178,12 @@ async function sendMessage(client: any, options: SendPayload & {
   }
 }
 
+async function applySendEphemeral(client: any, chatID: string, payload: SendPayload): Promise<{ messageExpirySeconds?: number } | undefined> {
+  if (payload.messageExpirySeconds === undefined) return payload.ephemeral ? {} : undefined
+  await client.chats.update(chatID, { messageExpirySeconds: payload.messageExpirySeconds })
+  return { messageExpirySeconds: payload.messageExpirySeconds }
+}
+
 async function waitForMessage(client: any, chatID: string, pendingMessageID: string, timeoutMs = 30_000): Promise<unknown> {
   const started = Date.now()
   let lastError: unknown
@@ -1872,22 +3199,38 @@ async function waitForMessage(client: any, chatID: string, pendingMessageID: str
 }
 
 async function sendReact(ctx: CommandContext): Promise<unknown> {
-  const id = stringFlag(ctx.flags, 'id')!
-  const reaction = stringFlag(ctx.flags, 'reaction')!
+  const id = reactionMessageID(ctx)
+  const rawReaction = stringFlag(ctx.flags, 'reaction') ?? '+1'
+  const reaction = rawReaction || '+1'
   const transactionID = stringFlag(ctx.flags, 'transaction')
-  const remove = Boolean(ctx.flags.remove)
+  const remove = Boolean(ctx.flags.remove) || rawReaction === ''
+  const to = sendDestination(ctx)
+  const postSendWait = stringFlag(ctx.flags, 'post-send-wait')
+  const waitTimeoutMs = postSendWait === undefined ? undefined : parseDurationMs(postSendWait)
   if (remove && transactionID) throw usage('--transaction cannot be combined with --remove')
   if (ctx.globalFlags.dryRun) {
-    return { dry_run: true, op: 'send.react', request: { chat: stringFlag(ctx.flags, 'to'), messageID: id, pick: ctx.flags.pick, reactionKey: reaction, remove, transactionID } }
+    return { dry_run: true, op: 'send.react', request: { chat: to, messageID: id, pick: ctx.flags.pick, reactionKey: reaction, remove, transactionID, wait: waitTimeoutMs === undefined ? undefined : Boolean(waitTimeoutMs && waitTimeoutMs > 0), waitTimeoutMs } }
   }
   const client = await apiClient(ctx)
   const chatID = await chatIDFromFlag(client, ctx, 'to')
-  if (remove) return client.chats.messages.reactions.delete(reaction, { chatID, messageID: id })
-  return client.chats.messages.reactions.add(id, { chatID, reactionKey: reaction, transactionID })
+  const result = remove
+    ? await client.chats.messages.reactions.delete(reaction, { chatID, messageID: id })
+    : await client.chats.messages.reactions.add(id, { chatID, reactionKey: reaction, transactionID })
+  if (waitTimeoutMs && waitTimeoutMs > 0) await sleep(waitTimeoutMs)
+  return result
+}
+
+function reactionMessageID(ctx: CommandContext): string {
+  const flagID = stringFlag(ctx.flags, 'id')
+  const positionalID = ctx.args[0]
+  if (flagID && positionalID) throw usage('--id and positional <id> cannot be combined')
+  const id = flagID ?? positionalID
+  if (!id) throw usage('send react requires --id or <id>')
+  return id
 }
 
 async function authLogout(ctx: CommandContext): Promise<Record<string, unknown>> {
-  const target = await resolveTarget({ target: ctx.globalFlags.target })
+  const target = await resolveTarget({ target: ctx.args[0] ?? ctx.globalFlags.target })
   const token = target.auth?.accessToken
   if (ctx.globalFlags.dryRun) {
     return { dry_run: true, op: 'auth.logout', request: { baseURL: target.baseURL, hadToken: Boolean(token), revokeToken: Boolean(token), target: target.id } }
@@ -1914,6 +3257,12 @@ async function authEmailStart(ctx: CommandContext): Promise<unknown> {
   const email = stringFlag(ctx.flags, 'email')!
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'auth.email.start', request: { email, target: target.id } }
   return startEmailSetup(target, email)
+}
+
+async function login(ctx: CommandContext): Promise<unknown> {
+  const email = ctx.args[0]
+  if (!email) throw usage('login requires email')
+  return authEmailStart({ ...ctx, flags: { ...ctx.flags, email } })
 }
 
 async function authEmailResponse(ctx: CommandContext): Promise<unknown> {
@@ -1965,38 +3314,70 @@ function jsonBody(ctx: CommandContext): Record<string, unknown> {
 }
 
 async function sendPayload(ctx: CommandContext, kind: SendKind): Promise<SendPayload> {
+  const delivery = sendDelivery(ctx)
   if (kind === 'text') {
     const message = await messageText(ctx)
     return {
       mentions: stringListFlag(ctx.flags, 'mention'),
       noPreview: Boolean(ctx.flags['no-preview']),
+      ...sendEphemeral(ctx),
       replyTo: stringFlag(ctx.flags, 'reply-to'),
+      replyToSender: stringFlag(ctx.flags, 'reply-to-sender'),
       text: message,
-      wait: Boolean(ctx.flags.wait),
-      waitTimeoutMs: numberFlag(ctx.flags, 'wait-timeout', 30_000),
+      ...delivery,
     }
   }
-  const file = stringFlag(ctx.flags, 'file')!
-  const attachmentType: AttachmentType | undefined = kind === 'sticker' ? 'sticker' : kind === 'voice' ? 'voice-note' : undefined
+  const fileFlag = stringFlag(ctx.flags, 'file')
+  const positionalFile = ctx.args[0]
+  if (fileFlag && positionalFile) throw usage('--file and positional <localPath> cannot be combined')
+  const file = fileFlag ?? positionalFile
+  if (!file) throw usage(`${ctx.commandPath.join(' ')} requires --file or <localPath>`)
+  const ptt = kind === 'file' && Boolean(ctx.flags.ptt)
+  if (ptt && stringFlag(ctx.flags, 'caption') !== undefined) throw usage('--caption cannot be combined with --ptt')
+  const attachmentType: AttachmentType | undefined = kind === 'sticker' ? 'sticker' : kind === 'voice' || ptt ? 'voice-note' : undefined
   return {
     attachmentType,
     duration: kind === 'voice' ? numberFlag(ctx.flags, 'duration', 0) || undefined : undefined,
     file,
     fileName: stringFlag(ctx.flags, 'filename'),
-    mimeType: stringFlag(ctx.flags, 'mime') ?? (kind === 'sticker' ? 'image/webp' : kind === 'voice' ? 'audio/ogg' : undefined),
+    mimeType: stringFlag(ctx.flags, 'mime') ?? (kind === 'sticker' ? 'image/webp' : kind === 'voice' || ptt ? 'audio/ogg' : undefined),
     replyTo: stringFlag(ctx.flags, 'reply-to'),
-    text: kind === 'file' ? stringFlag(ctx.flags, 'caption') ?? '' : '',
-    wait: Boolean(ctx.flags.wait),
-    waitTimeoutMs: numberFlag(ctx.flags, 'wait-timeout', 30_000),
+    replyToSender: stringFlag(ctx.flags, 'reply-to-sender'),
+    text: kind === 'file' && !ptt ? stringFlag(ctx.flags, 'caption') ?? '' : '',
+    ...delivery,
+  }
+}
+
+function sendDelivery(ctx: CommandContext): Pick<SendPayload, 'wait' | 'waitTimeoutMs'> {
+  const postSendWait = stringFlag(ctx.flags, 'post-send-wait')
+  if (postSendWait !== undefined) {
+    const waitTimeoutMs = parseDurationMs(postSendWait)
+    return { wait: Boolean(waitTimeoutMs && waitTimeoutMs > 0), waitTimeoutMs }
+  }
+  return { wait: Boolean(ctx.flags.wait), waitTimeoutMs: numberFlag(ctx.flags, 'wait-timeout', 30_000) }
+}
+
+function sendEphemeral(ctx: CommandContext): Pick<SendPayload, 'ephemeral' | 'ephemeralDuration' | 'messageExpirySeconds'> {
+  const duration = stringFlag(ctx.flags, 'ephemeral-duration')
+  if (!ctx.flags.ephemeral && duration === undefined) return {}
+  const messageExpirySeconds = duration === undefined ? undefined : parseDisappearSeconds(duration)
+  if (messageExpirySeconds === null || messageExpirySeconds === 0) throw usage('--ephemeral-duration must be a positive duration like 24h, 7d, 90d, or 168h')
+  return {
+    ephemeral: true,
+    ephemeralDuration: duration,
+    messageExpirySeconds: messageExpirySeconds ?? undefined,
   }
 }
 
 async function messageText(ctx: CommandContext): Promise<string> {
   const literal = stringFlag(ctx.flags, 'message')
   const file = stringFlag(ctx.flags, 'message-file')
+  const positional = isTextSend(ctx) ? ctx.args.slice(1).join(' ') : ''
   if (literal && file) throw usage('--message and --message-file cannot be combined')
+  if (positional && (literal !== undefined || file)) throw usage('positional <message> cannot be combined with --message or --message-file')
   if (file) return file === '-' ? await readStdin() : readFile(file, 'utf8')
   if (literal !== undefined) return ctx.flags['message-escapes'] ? decodeEscapes(literal) : literal
+  if (positional) return ctx.flags['message-escapes'] ? decodeEscapes(positional) : positional
   throw usage('send text requires --message or --message-file')
 }
 
@@ -2016,11 +3397,12 @@ function decodeEscapes(value: string): string {
 }
 
 async function sendPresence(ctx: CommandContext): Promise<unknown> {
-  const state = (stringFlag(ctx.flags, 'state') ?? 'typing') as 'typing' | 'paused'
+  const fixedState = ctx.commandPath[0] === 'presence' ? ctx.commandPath[1] : undefined
+  const state = (fixedState ?? stringFlag(ctx.flags, 'state') ?? 'typing') as 'typing' | 'paused'
   const duration = ctx.flags.duration === undefined ? undefined : numberFlag(ctx.flags, 'duration', 0)
   if (duration !== undefined && duration <= 0) throw usage('--duration must be a positive integer')
   if (duration !== undefined && state !== 'typing') throw usage('--duration only applies when --state is typing')
-  const to = stringFlag(ctx.flags, 'to')!
+  const to = sendDestination(ctx)
   if (ctx.globalFlags.dryRun) return { dry_run: true, op: 'send.presence', request: { chat: to, durationSeconds: duration, pick: ctx.flags.pick, state } }
 
   const client = await apiClient(ctx)
@@ -2037,7 +3419,7 @@ async function sendPresence(ctx: CommandContext): Promise<unknown> {
 }
 
 async function chatIDFromFlag(client: any, ctx: CommandContext, name: 'chat' | 'to'): Promise<string> {
-  return resolveChatID(client, stringFlag(ctx.flags, name)!, chatResolutionOptions(ctx))
+  return resolveChatID(client, requiredStringFlag(ctx.flags, name), chatResolutionOptions(ctx))
 }
 
 function chatResolutionOptions(ctx: CommandContext, accountIDs?: string[]): { accountIDs?: string[]; noInput?: boolean; pick?: number } {
@@ -2118,8 +3500,7 @@ function forwardWebhook(webhook: WebhookConfig, body: string, events: boolean): 
     process.stderr.write(`warning: webhook queue full (${webhook.max}); dropped event\n`)
     return
   }
-  const signature = webhook.secret ? `sha256=${createHmac('sha256', webhook.secret).update(body).digest('hex')}` : undefined
-  webhook.queue.push({ body, signature })
+  webhook.queue.push({ body, secret: webhook.secret })
   void drainWebhook(webhook, events)
 }
 
@@ -2128,8 +3509,7 @@ async function drainWebhook(webhook: WebhookConfig, events: boolean): Promise<vo
     const item = webhook.queue.shift()!
     webhook.inflight += 1
     try {
-      const headers: Record<string, string> = { 'content-type': 'application/json' }
-      if (item.signature) headers['x-beeper-signature'] = item.signature
+      const headers = webhookHeaders(item.body, item.secret)
       const response = await fetch(webhook.url, { body: item.body, headers, method: 'POST', signal: AbortSignal.timeout(10_000) })
       if (!response.ok) {
         if (events) writeEvent('watch.webhook_error', { status: response.status })
@@ -2142,6 +3522,15 @@ async function drainWebhook(webhook: WebhookConfig, events: boolean): Promise<vo
       webhook.inflight -= 1
     }
   }
+}
+
+export function webhookHeaders(body: string, secret?: string): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (!secret) return headers
+  const signature = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
+  headers['x-beeper-signature'] = signature
+  headers['x-wacli-signature'] = signature
+  return headers
 }
 
 async function chooseBridge(items: Record<string, unknown>[]): Promise<string> {
@@ -2178,6 +3567,21 @@ function printAvailableBridges(items: Record<string, unknown>[]): void {
     }
     output.write('\n')
   }
+}
+
+function printBridgeServicesMarkdown(services: Record<string, unknown>[]): void {
+  output.write('| Bridge ID | Name | Provider | Service | Status | Multiple Accounts |\n')
+  output.write('| --- | --- | --- | --- | --- | --- |\n')
+  for (const service of services) {
+    output.write(`| ${markdownTableCell(service.bridge_id)} | ${markdownTableCell(service.name)} | ${markdownTableCell(service.provider)} | ${markdownTableCell(service.service)} | ${markdownTableCell(service.status)} | ${markdownTableCell(service.supports_multiple_accounts === undefined ? '' : service.supports_multiple_accounts ? 'yes' : 'no')} |\n`)
+  }
+}
+
+function markdownTableCell(value: unknown): string {
+  return String(value ?? '')
+    .replaceAll('|', '\\|')
+    .replaceAll('\r\n', '<br>')
+    .replaceAll('\n', '<br>')
 }
 
 function resolveBridgeChoice(items: Record<string, unknown>[], input: string): Record<string, unknown> {
@@ -2222,6 +3626,14 @@ function ids(items: Record<string, unknown>[], preferred: string): string[] {
     .map(String)
 }
 
+function accountIDForRow(row: Record<string, unknown>): string {
+  return typeof row.accountID === 'string' && row.accountID
+    ? row.accountID
+    : typeof row.id === 'string' && row.id
+      ? row.id
+      : ''
+}
+
 function resolution(ctx: CommandContext, kind: string, selector: string, candidates: Record<string, unknown>[]): Record<string, unknown> {
   if (!candidates.length) {
     throw new AbortError(`No ${kind} matches "${selector}"`, ExitCodes.NotFound, undefined, 'not_found')
@@ -2247,6 +3659,8 @@ function ignorableLookupError(error: unknown): boolean {
 }
 
 function matchesChatFilters(row: Record<string, unknown>, ctx: CommandContext): boolean {
+  const type = stringFlag(ctx.flags, 'type') ?? stringFlag(ctx.flags, 'chat-type')
+  if (type && type !== 'any' && row.type !== type) return false
   if (ctx.flags.archived !== undefined && Boolean(row.isArchived) !== ctx.flags.archived) return false
   if (ctx.flags.pinned !== undefined && Boolean(row.isPinned) !== ctx.flags.pinned) return false
   if (ctx.flags.muted !== undefined && Boolean(row.isMuted) !== ctx.flags.muted) return false
@@ -2258,14 +3672,45 @@ function matchesChatFilters(row: Record<string, unknown>, ctx: CommandContext): 
   return true
 }
 
-async function collectMessages(iterable: AsyncIterable<unknown>, limit: number, sender?: string): Promise<unknown[]> {
-  if (!sender) return collectPage(iterable, limit)
+type MessageListFilter = {
+  hasMedia: boolean
+  sender?: string
+  type?: string
+}
+
+async function collectMessages(iterable: AsyncIterable<unknown>, limit: number, filter?: MessageListFilter): Promise<unknown[]> {
+  if (!filter || (!filter.sender && !filter.hasMedia && !filter.type)) return collectPage(iterable, limit)
   const items: unknown[] = []
   for await (const item of iterable) {
-    if (matchesSender(item, sender)) items.push(item)
+    if (matchesMessageListFilter(item, filter)) items.push(item)
     if (items.length >= limit) break
   }
   return items
+}
+
+function messageListFilter(ctx: CommandContext): MessageListFilter | undefined {
+  const sender = messageSenderFilter(ctx)
+  const type = stringFlag(ctx.flags, 'type')
+  const hasMedia = Boolean(ctx.flags['has-media'])
+  return sender || type || hasMedia ? { hasMedia, sender, type } : undefined
+}
+
+function messageSenderFilter(ctx: CommandContext): string | undefined {
+  const sender = stringFlag(ctx.flags, 'sender')
+  const fromMe = Boolean(ctx.flags['from-me'])
+  const fromThem = Boolean(ctx.flags['from-them'])
+  const count = [Boolean(sender), fromMe, fromThem].filter(Boolean).length
+  if (count > 1) throw usage('Use only one of --sender, --from-me, or --from-them')
+  if (fromMe) return 'me'
+  if (fromThem) return 'others'
+  return sender
+}
+
+function matchesMessageListFilter(item: unknown, filter: MessageListFilter): boolean {
+  if (filter.sender && !matchesSender(item, filter.sender)) return false
+  if (filter.hasMedia && !messageHasMedia(item)) return false
+  if (filter.type && messageKind(item) !== filter.type) return false
+  return true
 }
 
 function matchesSender(item: unknown, sender: string): boolean {
@@ -2276,6 +3721,49 @@ function matchesSender(item: unknown, sender: string): boolean {
   return row.senderID === sender
 }
 
+function messageHasMedia(item: unknown): boolean {
+  const row = apiRecord(item)
+  const attachments = row.attachments ?? row.files ?? row.media
+  if (Array.isArray(attachments) && attachments.length > 0) return true
+  return Boolean(row.attachment || row.file || row.mediaURL || row.mediaUrl || row.thumbnailURL || row.thumbnailUrl)
+}
+
+function messageKind(item: unknown): string {
+  const row = apiRecord(item)
+  const explicit = stringValue(row.type) ?? stringValue(row.messageType) ?? stringValue(row.kind)
+  if (explicit) {
+    const normalized = explicit.toLowerCase()
+    if (normalized === 'document') return 'document'
+    if (normalized === 'file') return 'file'
+    if (normalized === 'audio' || normalized === 'voice') return 'audio'
+    if (normalized === 'image' || normalized === 'video' || normalized === 'link' || normalized === 'text') return normalized
+  }
+  const attachment = firstAttachment(row)
+  const attachmentType = stringValue(attachment?.type) ?? stringValue(attachment?.mimeType)
+  if (attachmentType?.startsWith('image/')) return 'image'
+  if (attachmentType?.startsWith('video/')) return 'video'
+  if (attachmentType?.startsWith('audio/')) return 'audio'
+  if (attachmentType === 'application/pdf' || attachmentType?.startsWith('text/') || attachmentType?.includes('document')) return 'document'
+  if (attachmentType) return 'file'
+  return messageHasMedia(row) ? 'file' : 'text'
+}
+
+function firstAttachment(row: Record<string, unknown>): Record<string, unknown> | undefined {
+  for (const key of ['attachments', 'files', 'media']) {
+    const value = row[key]
+    if (Array.isArray(value) && value[0] && typeof value[0] === 'object') return value[0] as Record<string, unknown>
+  }
+  for (const key of ['attachment', 'file']) {
+    const value = row[key]
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  }
+  return undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -2284,11 +3772,18 @@ function completionScript(shell: string): string {
   const command = 'beeper'
   if (shell === 'bash') {
     return [
+      '#!/usr/bin/env bash',
+      '',
       '_beeper_complete() {',
+      "  local IFS=$'\\n'",
       '  local completions',
       '  completions=$(beeper __complete --cword "$COMP_CWORD" -- "${COMP_WORDS[@]}")',
-      '  COMPREPLY=( $completions )',
+      '  COMPREPLY=()',
+      '  if [[ -n "$completions" ]]; then',
+      '    COMPREPLY=( $completions )',
+      '  fi',
       '}',
+      '',
       `complete -F _beeper_complete ${command}`,
       '',
     ].join('\n')
@@ -2296,25 +3791,45 @@ function completionScript(shell: string): string {
   if (shell === 'zsh') {
     return [
       '#compdef beeper',
+      '',
       '_beeper() {',
       '  local -a completions',
       '  completions=("${(@f)$(beeper __complete --cword "$((CURRENT - 1))" -- "${words[@]}")}")',
-      '  _describe "values" completions',
+      "  _describe 'values' completions",
       '}',
-      '_beeper "$@"',
+      '',
+      'compdef _beeper beeper',
       '',
     ].join('\n')
   }
   if (shell === 'fish') {
-    return `complete -c ${command} -f -a '(beeper __complete --cword (commandline -t | wc -w) -- (commandline -opc))'\n`
+    return [
+      'function __beeper_complete',
+      '  set -l words (commandline -opc)',
+      '  set -l cur (commandline -ct)',
+      '',
+      '  # Include the current token (partial word being typed) to match bash behavior.',
+      '  set words $words $cur',
+      '',
+      '  # cword points to the last word (the one being completed).',
+      '  set -l cword (math (count $words) - 1)',
+      '  beeper __complete --cword $cword -- $words',
+      'end',
+      '',
+      `complete -c ${command} -f -a "(__beeper_complete)"`,
+      '',
+    ].join('\n')
   }
   if (shell === 'powershell' || shell === 'pwsh') {
     return [
-      `Register-ArgumentCompleter -Native -CommandName ${command} -ScriptBlock {`,
-      '  param($wordToComplete, $commandAst, $cursorPosition)',
-      '  $words = $commandAst.ToString().Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)',
-      '  $cword = [Math]::Max(0, $words.Length - 1)',
-      '  beeper __complete --cword $cword -- $words | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_) }',
+      `Register-ArgumentCompleter -CommandName ${command} -ScriptBlock {`,
+      '  param($commandName, $wordToComplete, $cursorPosition, $commandAst, $fakeBoundParameter)',
+      '  $elements = $commandAst.CommandElements | ForEach-Object { $_.ToString() }',
+      '  $cword = $elements.Count - 1',
+      '  $completions = beeper __complete --cword $cword -- $elements',
+      '  foreach ($completion in $completions) {',
+      "    [System.Management.Automation.CompletionResult]::new($completion, $completion, 'ParameterValue', $completion)",
+      '  }',
       '}',
       '',
     ].join('\n')
@@ -2322,25 +3837,28 @@ function completionScript(shell: string): string {
   throw usage('completion shell must be one of: bash, zsh, fish, powershell')
 }
 
-function completeWords(words: string[], cword: number): string[] {
+function completeWords(words: string[], cword: number, globalFlags: GlobalFlags): string[] {
   const index = normalizeCword(cword, words.length)
   const start = isProgramName(words[0]) ? 1 : 0
   if (index < start) return []
   const current = index < words.length ? words[index] ?? '' : ''
   const consumed = words.slice(start, Math.min(index, words.length))
   if (consumed.includes('--')) return []
-  const node = completionNode(consumed)
-  if (!node || previousFlagNeedsValue(node.flags, words, index)) return []
+  const node = completionNode(consumed, globalFlags)
+  if (!node) return []
+  const valueSuggestions = previousFlagValueSuggestions(node.flagSpecs, words, index, current)
+  if (valueSuggestions) return valueSuggestions
+  if (previousFlagNeedsValue(node.flags, words, index)) return []
   const flags = node.flags
   const children = node.children
   const suggestions = current.startsWith('-')
     ? matching([...flags], current)
-    : matching([...children, ...flags], current)
-  return [...new Set(suggestions)].sort()
+    : matching([...flags, ...children], current)
+  return [...new Set(suggestions)]
 }
 
-function completionNode(consumed: string[]): { children: string[]; command?: CommandSpec; flags: string[] } | undefined {
-  let candidates = commands.filter(command => !command.hidden)
+function completionNode(consumed: string[], globalFlags: GlobalFlags): { children: string[]; command?: CommandSpec; flags: string[]; flagSpecs: FlagSpec[] } | undefined {
+  let candidates = commands.filter(command => commandVisible(command, globalFlags))
   let depth = 0
   for (const word of consumed) {
     if (word.startsWith('-')) continue
@@ -2352,20 +3870,94 @@ function completionNode(consumed: string[]): { children: string[]; command?: Com
   const exact = candidates.find(command => commandPathVariants(command).some(path => path.length === depth))
   const children = new Set<string>()
   for (const command of candidates) {
-    for (const path of commandPathVariants(command)) {
+    for (const path of completionChildVariants(command, consumed)) {
       const part = path[depth]
       if (part) children.add(part)
     }
   }
+  const flagSpecs = [...(exact?.flags ?? []), ...globalFlagSpecs]
   return {
-    children: [...children],
+    children: [...children].sort((a, b) => completionChildPriority(consumed, a) - completionChildPriority(consumed, b) || a.localeCompare(b)),
     command: exact,
-    flags: flagTokens([...(exact?.flags ?? []), ...globalFlagSpecs]),
+    flags: flagTokens(flagSpecs),
+    flagSpecs,
   }
+}
+
+function completionChildPriority(consumed: string[], child: string): number {
+  const parent = consumed.filter(part => !part.startsWith('-')).join(' ')
+  const rootOrder = [
+    'message',
+    'ls',
+    'search',
+    'open',
+    'download',
+    'upload',
+    'login',
+    'logout',
+    'status',
+    'me',
+    'whoami',
+    'setup',
+    'send',
+    'chats',
+    'groups',
+    'messages',
+    'accounts',
+    'contacts',
+    'presence',
+    'media',
+    'targets',
+    'use',
+    'remove',
+    'resolve',
+    'export',
+    'watch',
+    'doctor',
+    'auth',
+    'install',
+    'api',
+    'config',
+    'docs',
+    'schema',
+    'mcp',
+    'agent',
+    'exit-codes',
+    'completion',
+    'help',
+    'version',
+  ]
+  const orders: Record<string, string[]> = {
+    '': rootOrder,
+    accounts: ['list', 'show', 'add', 'use', 'remove'],
+    auth: ['add', 'list', 'email', 'logout', 'status'],
+    chats: ['list', 'show', 'start', 'archive', 'unarchive', 'pin', 'unpin', 'mute', 'unmute', 'read', 'mark-read', 'mark-unread', 'rename', 'description', 'avatar', 'priority', 'draft', 'remind', 'disappear', 'focus', 'notify-anyway'],
+    config: ['get', 'keys', 'set', 'unset', 'list', 'path'],
+    contacts: ['list', 'show'],
+    group: ['list', 'show', 'create', 'rename', 'description'],
+    groups: ['list', 'show', 'create', 'rename', 'description'],
+    media: ['download', 'message'],
+    messages: ['list', 'search', 'context', 'show', 'export', 'edit', 'delete', 'revoke'],
+    presence: ['typing', 'paused'],
+    search: ['all'],
+    send: ['text', 'file', 'voice', 'sticker', 'react', 'presence'],
+    targets: ['list', 'use', 'add', 'remove', 'logs', 'runtime', 'tunnel'],
+    'targets runtime': ['start', 'stop', 'restart'],
+  }
+  const order = orders[parent] ?? []
+  const index = order.indexOf(child)
+  return index === -1 ? order.length : index
 }
 
 function commandPathVariants(command: CommandSpec): string[][] {
   return [command.path, ...(command.aliases ?? [])]
+}
+
+function completionChildVariants(command: CommandSpec, consumed: string[]): string[][] {
+  const variants = commandPathVariants(command)
+  if (!consumed.length) return variants
+  const matching = variants.filter(path => consumed.every((part, index) => path[index] === part))
+  return matching.length ? matching : variants.filter(path => path.length > consumed.length)
 }
 
 function flagTokens(flags: FlagSpec[]): string[] {
@@ -2373,16 +3965,35 @@ function flagTokens(flags: FlagSpec[]): string[] {
     `--${flag.name}`,
     flag.short ? `-${flag.short}` : undefined,
     ...(flag.aliases ?? []).map(alias => `--${alias}`),
-    flag.type === 'boolean' ? `--no-${flag.name}` : undefined,
+    shouldCompleteNoFlag(flag) ? `--no-${flag.name}` : undefined,
   ]).filter((value): value is string => Boolean(value))
+}
+
+function shouldCompleteNoFlag(flag: FlagSpec): boolean {
+  return flag.type === 'boolean' && (flag.default === true || Boolean(flag.env?.length))
 }
 
 function previousFlagNeedsValue(flags: string[], words: string[], cword: number): boolean {
   const previous = words[cword - 1]
   if (!previous?.startsWith('-') || previous.includes('=')) return false
-  const spec = [...globalFlagSpecs, ...commands.flatMap(command => command.flags ?? [])]
-    .find(flag => [`--${flag.name}`, flag.short ? `-${flag.short}` : undefined, ...(flag.aliases ?? []).map(alias => `--${alias}`)].includes(previous))
+  const spec = allFlagSpecs().find(flag => flagSpellings(flag).includes(previous))
   return Boolean(spec && spec.type !== 'boolean' && flags.includes(previous))
+}
+
+function previousFlagValueSuggestions(flags: FlagSpec[], words: string[], cword: number, current: string): string[] | undefined {
+  const previous = words[cword - 1]
+  if (!previous?.startsWith('-') || previous.includes('=')) return undefined
+  const spec = flags.find(flag => flagSpellings(flag).includes(previous))
+  if (!spec || !spec.enum?.length) return undefined
+  return matching(spec.enum, current)
+}
+
+function allFlagSpecs(): FlagSpec[] {
+  return [...globalFlagSpecs, ...commands.flatMap(command => command.flags ?? [])]
+}
+
+function flagSpellings(flag: FlagSpec): string[] {
+  return [`--${flag.name}`, flag.short ? `-${flag.short}` : undefined, ...(flag.aliases ?? []).map(alias => `--${alias}`)].filter((value): value is string => Boolean(value))
 }
 
 function matching(values: string[], prefix: string): string[] {
@@ -2401,4 +4012,23 @@ function isProgramName(word?: string): boolean {
 async function packageInfo(): Promise<Record<string, unknown>> {
   const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
   return JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as Record<string, unknown>
+}
+
+function packageInfoSync(): Record<string, unknown> {
+  const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+  return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, unknown>
+}
+
+function buildInfo(): string {
+  const pkg = packageInfoSync()
+  return process.env.BEEPER_BUILD_COMMIT || process.env.BEEPER_BUILD_DATE
+    ? [pkg.version, process.env.BEEPER_BUILD_DATE, process.env.BEEPER_BUILD_COMMIT].filter(Boolean).join('-')
+    : String(pkg.version ?? '')
+}
+
+function beeperConfigRootInfo(): { path: string; source: string } {
+  if (process.env.BEEPER_HOME) return { path: process.env.BEEPER_HOME, source: 'BEEPER_HOME' }
+  if (process.env.BEEPER_STORE_DIR) return { path: process.env.BEEPER_STORE_DIR, source: 'BEEPER_STORE_DIR' }
+  if (process.env.BEEPER_CLI_CONFIG_DIR) return { path: process.env.BEEPER_CLI_CONFIG_DIR, source: 'BEEPER_CLI_CONFIG_DIR' }
+  return { path: dirname(configPath()), source: 'default' }
 }

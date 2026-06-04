@@ -12,9 +12,15 @@ type ErrorShape = {
 export function writeResult(value: unknown, flags: GlobalFlags, command?: CommandSpec): void {
   if (value === undefined) return
   if (flags.json) {
-    const selected = flags.select ? selectFields(value, flags.select) : value
-    const result = flags.resultsOnly ? primaryResult(selected) : selected
-    const data = flags.wrapUntrusted ? wrapUntrusted(result) : result
+    const source = command?.path.join(' ') === 'docs' ? { success: true, data: value, error: null } : value
+    const transformed = command?.rawJson
+      ? source
+      : flags.resultsOnly
+        ? primaryResult(flags.select ? selectFields(source, flags.select) : source, command)
+        : flags.select
+          ? selectFields(source, flags.select)
+          : source
+    const data = flags.wrapUntrusted && !command?.rawJson ? wrapUntrusted(transformed) : transformed
     process.stdout.write(`${JSON.stringify(data, null, 2)}\n`)
   } else writeText(value, flags.plain, command, flags.full)
 }
@@ -47,12 +53,12 @@ export function writeError(error: unknown, flags: Pick<GlobalFlags, 'events' | '
     return formatted.exitCode
   }
   process.stderr.write(`${sanitizeHuman(formatted.message)}\n`)
-  if (formatted.hint) process.stderr.write(`hint: ${sanitizeHuman(formatted.hint)}\n`)
+  if (formatted.hint) process.stderr.write(`${sanitizeHuman(formatted.hint)}\n`)
   return formatted.exitCode
 }
 
-export function usage(message: string): AbortError {
-  return new AbortError(message, ExitCodes.Usage, undefined, 'usage_error')
+export function usage(message: string, hint?: string): AbortError {
+  return new AbortError(message, ExitCodes.Usage, hint, 'usage_error')
 }
 
 function sanitizeHuman(value: string): string {
@@ -120,11 +126,58 @@ function writeText(value: unknown, plain = false, command?: CommandSpec, full = 
 }
 
 function writeCommandText(value: unknown, plain: boolean, command: CommandSpec, full: boolean): boolean {
+  if (command.path.join(' ') === 'version' && isRecord(value) && value.version !== undefined) {
+    process.stdout.write(`${escapePlain(humanCell(value.version))}\n`)
+    return true
+  }
+  if (plain && command.path.join(' ') === 'config get' && isRecord(value) && 'value' in value) {
+    process.stdout.write(`${escapePlain(humanCell(value.value))}\n`)
+    return true
+  }
+  if (plain && command.path.join(' ') === 'config path' && isRecord(value) && 'path' in value) {
+    process.stdout.write(`${escapePlain(humanCell(value.path))}\n`)
+    return true
+  }
+  if (plain && command.path.join(' ') === 'config keys' && isRecord(value) && Array.isArray(value.keys)) {
+    for (const key of value.keys) process.stdout.write(`${escapePlain(humanCell(key))}\n`)
+    return true
+  }
+  if (plain && command.path.join(' ') === 'config set' && isRecord(value) && value.key !== undefined) {
+    process.stdout.write(`Set ${escapePlain(humanCell(value.key))} = ${escapePlain(humanCell(value.value))}\n`)
+    return true
+  }
+  if (plain && command.path.join(' ') === 'config unset' && isRecord(value) && value.key !== undefined) {
+    process.stdout.write(`Unset ${escapePlain(humanCell(value.key))}\n`)
+    return true
+  }
+  if (command.path.join(' ') === 'exit-codes' && isRecord(value) && isRecord(value.exit_codes)) {
+    writeKeyValueMap(value.exit_codes, plain)
+    return true
+  }
   const kind = command.output
-  if (kind === 'targets' && Array.isArray(value)) {
-    writeTable(value.filter(isRecord), ['id', 'default', 'type', 'reachable', 'name', 'baseURL', 'version', 'error'], plain, full, {
+  if (kind === 'targets') {
+    const targetRows = Array.isArray(value)
+      ? value
+      : isRecord(value) && Array.isArray(value.targets)
+        ? value.targets
+        : undefined
+    if (!targetRows) return false
+    writeTable(targetRows.filter(isRecord), ['id', 'default', 'type', 'reachable', 'name', 'baseURL', 'version', 'error'], plain, full, {
       baseURL: 'URL',
       id: 'ID',
+    })
+    return true
+  }
+  if (kind === 'auth') {
+    const authRows = Array.isArray(value)
+      ? value
+      : isRecord(value) && Array.isArray(value.accounts)
+        ? value.accounts
+        : undefined
+    if (!authRows) return false
+    writeTable(authRows.filter(isRecord), ['target', 'default', 'authenticated', 'source', 'expiresAt', 'clientID', 'scope', 'baseURL'], plain, full, {
+      baseURL: 'URL',
+      clientID: 'CLIENT',
     })
     return true
   }
@@ -162,6 +215,7 @@ function firstPresent(rows: Record<string, unknown>[], preferred: string[]): str
 function writeStatus(value: Record<string, unknown>, plain: boolean): void {
   const target = isRecord(value.target) ? value.target : {}
   const auth = isRecord(value.auth) ? value.auth : {}
+  const config = isRecord(value.config) ? value.config : {}
   const live = isRecord(value.live) ? value.live : {}
   const readiness = isRecord(value.readiness) ? value.readiness : {}
   writeDiagnostic({
@@ -173,21 +227,48 @@ function writeStatus(value: Record<string, unknown>, plain: boolean): void {
     version: live.version,
     authenticated: auth.authenticated,
     auth_source: auth.source,
+    config: config.path,
+    default_account: config.defaultAccount,
     readiness: readiness.state,
     next: readiness.message,
   }, plain)
 }
 
 function writeDiagnostic(value: Record<string, unknown>, plain: boolean): void {
+  if (plain) {
+    const flattened = flatPlainMap(value)
+    if (Object.keys(flattened).length) {
+      writeKeyValueMap(flattened, true)
+      return
+    }
+  }
   const rows = Object.entries(value)
     .filter(([, item]) => item !== undefined)
-    .map(([key, item]) => ({ key: key.replaceAll('_', ' ').toUpperCase(), value: humanCell(item) }))
+    .map(([key, item]) => ({ key, label: key.replaceAll('_', ' ').toUpperCase(), value: humanCell(item) }))
   if (plain) {
-    for (const row of rows) process.stdout.write(`${row.key}\t${row.value.replaceAll('\n', '\\n').replaceAll('\t', '\\t')}\n`)
+    for (const row of rows) process.stdout.write(`${row.key}\t${escapePlain(row.value)}\n`)
     return
   }
-  const width = Math.max(4, ...rows.map(row => row.key.length)) + 2
-  for (const row of rows) process.stdout.write(`${row.key.padEnd(width)}${row.value}\n`)
+  const width = Math.max(4, ...rows.map(row => row.label.length)) + 2
+  for (const row of rows) process.stdout.write(`${row.label.padEnd(width)}${row.value}\n`)
+}
+
+function writeKeyValueMap(value: Record<string, unknown>, plain: boolean): void {
+  for (const [key, item] of Object.entries(value).filter(([, item]) => item !== undefined)) {
+    const cell = escapePlain(humanCell(item))
+    process.stdout.write(plain ? `${key}\t${cell}\n` : `${key}: ${cell}\n`)
+  }
+}
+
+function flatPlainMap(value: Record<string, unknown>, prefix = ''): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) continue
+    const path = prefix ? `${prefix}.${key}` : key
+    if (isRecord(item)) Object.assign(out, flatPlainMap(item, path))
+    else out[path] = item
+  }
+  return out
 }
 
 function writeTable(rows: Record<string, unknown>[], columns: string[], plain: boolean, full: boolean, labels: Record<string, string> = {}): void {
@@ -224,9 +305,13 @@ function humanCell(value: unknown): string {
   return String(value ?? '')
 }
 
-function primaryResult(value: unknown): unknown {
+function primaryResult(value: unknown, command?: CommandSpec): unknown {
   if (!isRecord(value)) return value
-  for (const key of ['data', 'items', 'messages', 'chats', 'accounts', 'contacts', 'target', 'result']) {
+  const commandPath = command?.path.join(' ')
+  if (commandPath === 'status' || commandPath === 'auth status') return value
+  if (commandPath === 'config path' && value.path !== undefined) return value.path
+  if (commandPath === 'config keys' && value.keys !== undefined) return value.keys
+  for (const key of ['data', 'items', 'messages', 'chats', 'accounts', 'contacts', 'services', 'targets', 'target', 'result']) {
     if (value[key] !== undefined) return value[key]
   }
   return value

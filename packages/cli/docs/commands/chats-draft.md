@@ -2,44 +2,56 @@
 Set or clear a chat draft
 ## Usage
 ```sh
-beeper chats draft [flags]
+beeper chats draft (chat draft) [<chat>] [flags]
 ```
+## Aliases
+
+- `beeper chat draft`
+
+## Arguments
+
+| Name | Description |
+| --- | --- |
+| `[<chat>]` | Chat selector. Used when --chat is omitted. |
+
 ## Flags
 
 | Name | Description |
 | --- | --- |
-| `--chat <value>` | Chat selector Required. |
-| `--pick <value>` | Pick the Nth result when selector is ambiguous |
+| `--chat=STRING, --jid` | Chat selector |
+| `--pick=INTEGER` | Pick the Nth result when selector is ambiguous |
 | `--clear` | Clear the draft Default: `false`. |
-| `--file <value>` | Draft attachment file path |
-| `--filename <value>` | Draft attachment filename |
-| `--mime <value>` | Draft attachment MIME type |
-| `--text <value>` | Draft text |
+| `--file=STRING` | Draft attachment file path |
+| `--filename=STRING` | Draft attachment filename |
+| `--mime=STRING` | Draft attachment MIME type |
+| `--text=STRING` | Draft text |
 
 ## Global Flags
 
 | Name | Description |
 | --- | --- |
-| `--access-token <value>` | Use provided access token directly Env: `BEEPER_ACCESS_TOKEN`. |
-| `-a, --account <value>, --acct` | Account selector for account-aware commands Repeatable. |
-| `--color <value>` | Color output: auto\|always\|never Default: `auto`. Values: `auto`, `always`, `never`. |
-| `--debug` | Default: `false`. |
-| `--disable-commands <value>` | Comma-separated command prefixes to block |
-| `-n, --dry-run, --dryrun, --noop, --preview` | Do not make changes; print intended actions Default: `false`. |
-| `--enable-commands <value>` | Comma-separated enabled command prefixes |
-| `--enable-commands-exact <value>` | Comma-separated exact enabled commands |
-| `--events` | Default: `false`. |
-| `-y, --force, --assume-yes, --yes` | Skip confirmations for destructive commands Default: `false`. |
-| `--full` | Disable truncation in human table output Default: `false`. |
-| `--home <value>` | Override Beeper CLI config/data root Env: `BEEPER_CLI_CONFIG_DIR`. |
-| `-j, --json, --machine` | Output JSON to stdout Default: `false`. |
-| `--no-input, --non-interactive, --noninteractive` | Never prompt; fail instead Default: `false`. |
-| `-p, --plain, --tsv` | Output stable TSV-like text Default: `false`. |
-| `--read-only` | Reject commands that intentionally write Default: `false`. Env: `BEEPER_READONLY`. |
+| `-h, --help` | Show context-sensitive help Default: `false`. |
+| `--color="auto"` | Color output: auto\|always\|never Default: `auto`. Values: `auto`, `always`, `never`. Env: `BEEPER_COLOR`. |
+| `--home=STRING, --store` | Override Beeper CLI config/data/state/cache root Env: `BEEPER_HOME`, `BEEPER_STORE_DIR`, `BEEPER_CLI_CONFIG_DIR`. |
+| `-a, --account=STRING, --acct` | Account selector for account-aware commands Env: `BEEPER_ACCOUNT`. Repeatable. |
+| `--access-token=STRING` | Use provided access token directly (bypasses stored target auth) Env: `BEEPER_ACCESS_TOKEN`. |
+| `--enable-commands=STRING` | Comma-separated enabled command prefixes; dot paths allowed Env: `BEEPER_ENABLE_COMMANDS`. |
+| `--enable-commands-exact=STRING` | Comma-separated exact enabled commands; parent commands do not enable children Env: `BEEPER_ENABLE_COMMANDS_EXACT`. |
+| `--disable-commands=STRING` | Comma-separated command prefixes to block; dot paths allowed Env: `BEEPER_DISABLE_COMMANDS`. |
+| `-j, --json, --machine` | Output JSON to stdout (best for scripting) Default: `false`. Env: `BEEPER_JSON`. |
+| `-p, --plain, --tsv` | Output stable, parseable text to stdout (TSV-like; no colors) Default: `false`. Env: `BEEPER_PLAIN`. |
+| `--wrap-untrusted` | In JSON/raw output, wrap fetched text fields in untrusted-content markers Default: `false`. Env: `BEEPER_WRAP_UNTRUSTED`. |
 | `--results-only` | In JSON mode, emit only the primary result Default: `false`. |
-| `--safety-profile <value>` | Safety profile name or YAML path |
-| `--select <value>, --fields, --project` | Select comma-separated JSON fields |
-| `--target <value>` | Target name or URL |
-| `--timeout <value>` | Command timeout, for example 30s or 2m |
-| `-v, --version` | Print version and exit Default: `false`. |
-| `--wrap-untrusted` | Wrap fetched text fields in untrusted-content markers Default: `false`. |
+| `--select=STRING, --fields, --project` | In JSON mode, select comma-separated fields; dot paths allowed Env: `BEEPER_SELECT`, `BEEPER_FIELDS`, `BEEPER_PROJECT`. |
+| `-n, --dry-run, --dryrun, --noop, --preview` | Do not make changes; print intended actions and exit successfully Default: `false`. Env: `BEEPER_DRY_RUN`. |
+| `-y, --force, --assume-yes, --yes` | Skip confirmations for destructive commands Default: `false`. |
+| `--no-input, --non-interactive, --noninteractive` | Never prompt; fail instead (useful for CI) Default: `false`. |
+| `-v, --verbose, --debug` | Enable verbose logging Default: `false`. Env: `BEEPER_DEBUG`. |
+| `--version` | Print version and exit Default: `false`. |
+| `--events` | Emit machine-readable NDJSON lifecycle events on stderr Default: `false`. Env: `BEEPER_EVENTS`. |
+| `--full` | Disable truncation in human table output Default: `false`. |
+| `--lock-wait=STRING` | Accepted for compatibility; Beeper CLI does not use a local store lock |
+| `--read-only, --readonly` | Reject commands that intentionally write Beeper or local CLI state Default: `false`. Env: `BEEPER_READONLY`. |
+| `--safety-profile=STRING` | Safety profile name or YAML path |
+| `--target=STRING` | Target name or URL Env: `BEEPER_TARGET`. |
+| `--timeout=STRING` | Command timeout, for example 30s, 2m, 5m0s, or 1h30m Env: `BEEPER_TIMEOUT`. |

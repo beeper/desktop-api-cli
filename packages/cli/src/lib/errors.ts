@@ -3,7 +3,7 @@
  *   1   generic runtime error
  *   2   usage error (parsing, missing required flag/arg, invalid combination)
  *   3   empty results when --fail-empty/--non-empty is set
- *   4   auth required (no stored token; user must authenticate)
+ *   4   auth required or target not ready (inspect JSON error.code for auth_required vs not_ready)
  *   5   not found (selector matched nothing)
  *   6   ambiguous selector (multiple matches; use exact ID or --pick)
  *   127 user declined a selector suggestion (POSIX "command not found" semantics)

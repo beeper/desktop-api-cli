@@ -14,6 +14,9 @@ export function enforcePolicy(command: CommandSpec, flags: GlobalFlags): void {
   if (profile && !matchesPrefix(profile.allow, command.path)) {
     throw usage(`command "${command.path.join(' ')}" is blocked by safety profile "${profile.name}"`)
   }
+  if (command.risk === 'destructive' && !flags.force && !flags.dryRun) {
+    throw usage(`destructive command "${command.path.join(' ')}" requires --force or --dry-run`, 'Pass --force to confirm, or --dry-run to preview the action.')
+  }
 }
 
 export function commandVisible(command: CommandSpec, flags: GlobalFlags): boolean {
@@ -27,17 +30,16 @@ export function commandVisible(command: CommandSpec, flags: GlobalFlags): boolea
 function enforceCommandFilters(command: CommandSpec, flags: GlobalFlags): void {
   if (commandAllowedByFilters(command, flags)) return
   const path = command.path
-  if (rulesFromCSV(flags.disableCommands).size && matchesPrefix(rulesFromCSV(flags.disableCommands), path)) throw usage(`command "${path.join(' ')}" is disabled (blocked by --disable-commands)`)
+  if (rulesFromCSV(flags.disableCommands).size && commandMatchesPrefix(rulesFromCSV(flags.disableCommands), command)) throw usage(`command "${path.join(' ')}" is disabled (blocked by --disable-commands)`)
   throw usage(`command "${path.join(' ')}" is not enabled (set --enable-commands or --enable-commands-exact to allow it)`)
 }
 
 function commandAllowedByFilters(command: CommandSpec, flags: GlobalFlags): boolean {
-  const path = command.path
   const allow = rulesFromCSV(flags.enableCommands)
   const exactAllow = rulesFromCSV(flags.enableCommandsExact)
   const deny = rulesFromCSV(flags.disableCommands)
-  if (deny.size && matchesPrefix(deny, path)) return false
-  if ((allow.size || exactAllow.size) && !matchesPrefix(allow, path) && !matchesExact(exactAllow, path)) return false
+  if (deny.size && commandMatchesPrefix(deny, command)) return false
+  if ((allow.size || exactAllow.size) && !commandMatchesPrefix(allow, command) && !commandMatchesExact(exactAllow, command)) return false
   return true
 }
 
@@ -79,6 +81,18 @@ function matchesPrefix(rules: Set<string>, path: string[]): boolean {
 
 function matchesExact(rules: Set<string>, path: string[]): boolean {
   return rules.has('*') || rules.has('all') || rules.has(path.join('.'))
+}
+
+function commandMatchesPrefix(rules: Set<string>, command: CommandSpec): boolean {
+  return commandPaths(command).some(path => matchesPrefix(rules, path))
+}
+
+function commandMatchesExact(rules: Set<string>, command: CommandSpec): boolean {
+  return commandPaths(command).some(path => matchesExact(rules, path))
+}
+
+function commandPaths(command: CommandSpec): string[][] {
+  return [command.path, ...(command.aliases ?? [])]
 }
 
 function rulesFromCSV(value?: string): Set<string> {

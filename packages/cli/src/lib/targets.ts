@@ -42,7 +42,7 @@ export const builtInDesktopTargetID = 'desktop'
 const customTargetID = 'custom'
 
 export function beeperDir(): string {
-  return process.env.BEEPER_CLI_CONFIG_DIR ?? join(homedir(), '.beeper')
+  return process.env.BEEPER_HOME ?? process.env.BEEPER_STORE_DIR ?? process.env.BEEPER_CLI_CONFIG_DIR ?? join(homedir(), '.beeper')
 }
 
 export const configPath = () => join(beeperDir(), 'config.json')

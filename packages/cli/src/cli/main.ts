@@ -54,17 +54,34 @@ async function runWithTimeout<T>(run: () => Promise<T>, timeout?: string): Promi
 
 function parseDuration(value: string | undefined): number | undefined {
   if (!value) return undefined
-  const match = /^(\d+)(ms|s|m|h)?$/.exec(value.trim())
-  if (!match) throw usage('--timeout must be a duration like 500ms, 30s, 2m, or 1h')
-  const amount = Number(match[1])
-  if (!Number.isSafeInteger(amount) || amount <= 0) throw usage('--timeout must be greater than 0')
-  const unit = match[2] ?? 'ms'
-  const factor = unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : unit === 's' ? 1_000 : 1
-  return amount * factor
+  const input = value.trim()
+  const bareMilliseconds = /^\d+$/.exec(input)
+  if (bareMilliseconds) {
+    const ms = Number(input)
+    if (!Number.isSafeInteger(ms) || ms <= 0) throw usage('--timeout must be greater than 0')
+    return ms
+  }
+  const parts = [...input.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h)/g)]
+  if (!parts.length || parts.map(part => part[0]).join('') !== input) throw usage('--timeout must be a duration like 500ms, 30s, 2m, 5m0s, or 1h30m')
+  const ms = parts.reduce((total, part) => total + Number(part[1]) * durationFactor(part[2]!), 0)
+  if (!Number.isFinite(ms) || ms <= 0) throw usage('--timeout must be greater than 0')
+  const rounded = Math.round(ms)
+  if (!Number.isSafeInteger(rounded)) throw usage('--timeout is too large')
+  return rounded
+}
+
+function durationFactor(unit: string): number {
+  if (unit === 'h') return 3_600_000
+  if (unit === 'm') return 60_000
+  if (unit === 's') return 1_000
+  return 1
 }
 
 function applyGlobalEnvironment(flags: { accessToken?: string; home?: string }): void {
-  if (flags.home) process.env.BEEPER_CLI_CONFIG_DIR = flags.home
+  if (flags.home) {
+    process.env.BEEPER_HOME = flags.home
+    process.env.BEEPER_CLI_CONFIG_DIR = flags.home
+  }
   if (flags.accessToken) process.env.BEEPER_ACCESS_TOKEN = flags.accessToken
 }
 
