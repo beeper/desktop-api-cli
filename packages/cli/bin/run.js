@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, rename, rm } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm } from 'node:fs/promises'
+import { move } from 'fs-extra'
 import { get } from 'node:https'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -63,7 +64,7 @@ async function ensureExecutable() {
   if (platform !== 'windows') await chmod(extractedExecutable, 0o755)
   await rm(cacheDir, { recursive: true, force: true })
   await mkdir(cacheDir, { recursive: true })
-  await rename(extractedExecutable, cachedExecutable)
+  await move(extractedExecutable, cachedExecutable)
   await rm(tmpDir, { recursive: true, force: true })
   return cachedExecutable
 }

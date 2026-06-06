@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
-import { closeSync, openSync } from 'node:fs'
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { closeSync, openSync, existsSync } from 'node:fs'
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -54,23 +54,42 @@ export async function startProfile(target: Target): Promise<ProfileRun | { id: s
 
 export async function launchDesktopApp(target?: Target): Promise<{ id: string; startedAt: string }> {
   const installations = await readInstallations().catch(() => ({ desktop: undefined }))
-  const appPath = installations.desktop?.path ?? await findDesktopAppPath()
-  const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
-  args.push('--no-enforce-app-location')
-  if (target?.port) args.push(`--pas-port=${target.port}`)
-  if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
-  const env = target?.dataDir
-    ? {
+
+  const appPath = installations.desktop?.path && existsSync(installations.desktop.path) ? installations.desktop.path : await findDesktopAppPath()
+
+  if (process.platform === 'darwin') {
+    const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
+    args.push('--no-enforce-app-location')
+    if (target?.port) args.push(`--pas-port=${target.port}`)
+    if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+    const env = target?.dataDir
+      ? {
         ...process.env,
         ALLOW_MULTIPLE_INSTANCES: 'true',
         BEEPER_PROFILE: target.profile ?? target.id,
         BEEPER_USER_DATA_DIR: target.dataDir,
       }
-    : process.env
-  spawn('open', args, { detached: true, stdio: 'ignore', env }).unref()
+      : process.env
+    spawn('open', args, { detached: true, stdio: 'ignore', env }).unref()
+  }
+
+  if (process.platform === 'linux' || process.platform === 'win32') {
+    if (!appPath) throw new Error("Beeper Desktop not found. Please install beeper using 'beeper install --desktop' or add Beeper Desktop to the PATH")
+    const args = ['--no-enforce-app-location']
+    if (target?.port) args.push(`--pas-port=${target.port}`)
+    if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+    const env = target?.dataDir
+      ? {
+        ...process.env,
+        ALLOW_MULTIPLE_INSTANCES: 'true',
+        BEEPER_PROFILE: target.profile ?? target.id,
+        BEEPER_USER_DATA_DIR: target.dataDir,
+      }
+      : process.env
+    spawn(appPath, args, { detached: true, stdio: 'ignore', env }).unref()
+  }
   return { id: target?.id ?? 'desktop', startedAt: new Date().toISOString() }
 }
-
 export async function findDesktopAppPath(): Promise<string | undefined> {
   const installations = await readInstallations().catch(() => ({ desktop: undefined }))
   if (installations.desktop?.path && await isBeeperDesktopApp(installations.desktop.path)) return installations.desktop.path
@@ -96,8 +115,68 @@ export async function findDesktopAppPath(): Promise<string | undefined> {
   }
 
   if (process.platform === 'linux') {
-    for (const path of ['/usr/bin/beeper', '/usr/local/bin/beeper']) {
-      if (await pathExists(path)) return path
+    // 1. Check ~/.beeper/apps/desktop directory for AppImage first
+    const desktopAppDir = join(homedir(), '.beeper', 'apps', 'desktop');
+    try {
+      const files = await readdir(desktopAppDir);
+      for (const file of files) {
+        const filePath = join(desktopAppDir, file);
+        if (file.match(/^Beeper-.*\.AppImage$/i) && await pathExists(filePath)) {
+          return filePath;
+        }
+      }
+    } catch {
+      // Directory doesn't exist or cannot be read, continue to next strategy
+    }
+
+    // 2. Look for Beeper.desktop file and extract the executable from that
+    const desktopDirs = [
+      join(homedir(), '.local', 'share', 'applications'),
+      '/usr/share/applications',
+    ];
+
+    for (const dir of desktopDirs) {
+      try {
+        const desktopFilePath = join(dir, 'Beeper.desktop');
+        if (await pathExists(desktopFilePath)) {
+          const content = await readFile(desktopFilePath, 'utf8');
+          const execLine = content
+            .split('\n')
+            .find(line => line.startsWith('Exec='));
+
+          if (execLine) {
+            const exec = execLine.slice(5).trim();
+            const match = exec.match(/^"([^"]+)"|^([^\s]+)/);
+            const executable = match?.[1] ?? match?.[2];
+
+            if (executable && await pathExists(executable)) {
+              return executable;
+            }
+          }
+        }
+      } catch {
+        // Ignore unreadable files, continue to next strategy
+      }
+    }
+
+    // 3. Search PATH environment variable for AppImage
+    const pathEnv = process.env.PATH || '';
+    for (const dir of pathEnv.split(':')) {
+      if (dir) {
+        try {
+          const files = await readdir(dir);
+          for (const file of files) {
+            if (file.match(/^Beeper-.*\.AppImage$/i)) {
+              const filePath = join(dir, file);
+              if (await pathExists(filePath)) {
+                return filePath;
+              }
+            }
+          }
+        } catch {
+          // Directory doesn't exist or cannot be read, continue to next
+        }
+      }
     }
   }
 

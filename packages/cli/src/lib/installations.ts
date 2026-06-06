@@ -1,6 +1,7 @@
 import { createWriteStream } from 'node:fs'
-import { chmod, cp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { chmod, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { move } from 'fs-extra'
+import { tmpdir, homedir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -141,10 +142,7 @@ export async function checkInstallationUpdate(installation: Installation): Promi
     available,
     latestVersion,
     currentVersion: installation.version,
-    action: installation.kind === 'desktop'
-      ? 'Update Beeper Desktop in the app.'
-      : available ? 'Run: beeper update --server' : 'Beeper Server is up to date.',
-    feedURL: installation.feedURL,
+    action: available ? installation.kind === 'desktop' ? 'Run: beeper update --desktop' : 'Run: beeper update --server' : 'Installation is up to date.'
   }
 }
 
@@ -206,6 +204,10 @@ export async function installServer(options: { channel?: InstallChannel; serverE
   })
 }
 
+export async function updateDesktopInstallation(installation: Installation): Promise<Installation> {
+  return installDesktop({ channel: installation.channel, serverEnv: installation.serverEnv })
+}
+
 export async function updateServerInstallation(installation: Installation): Promise<Installation> {
   return installServer({ channel: installation.channel, serverEnv: installation.serverEnv })
 }
@@ -218,7 +220,7 @@ export async function downloadArtifact(url: string, destinationDir: string): Pro
   const finalPath = join(destinationDir, filename)
   const tmpPath = join(tmpdir(), `${filename}.${process.pid}.${Date.now()}.tmp`)
   await writeResponseToFile(response, tmpPath)
-  await rename(tmpPath, finalPath)
+  await move(tmpPath, finalPath)
   return finalPath
 }
 
@@ -234,14 +236,14 @@ async function extractServerArtifact(artifactPath: string, destinationDir: strin
     else await execFileAsync('unzip', ['-q', artifactPath, '-d', extractDir])
   } else {
     const executable = join(destinationDir, 'beeper-server')
-    await rename(artifactPath, executable)
+    await move(artifactPath, executable)
     await chmod(executable, 0o755)
     return executable
   }
 
   const executable = await findServerExecutable(extractDir)
   const finalPath = join(destinationDir, 'beeper-server')
-  await rename(executable, finalPath)
+  await move(executable, finalPath)
   await chmod(finalPath, 0o755)
   return finalPath
 }
@@ -271,6 +273,14 @@ async function extractDesktopArtifact(artifactPath: string, destinationDir: stri
     await copyPath(app, finalPath)
     await rm(extractDir, { recursive: true, force: true })
     return finalPath
+  }
+
+  if (artifactPath.endsWith('.AppImage')) {
+    const finalPath = join(desktopInstallDir(), basename(artifactPath));
+    await move(artifactPath, finalPath);
+    await chmod(finalPath, 0o755);
+    await createDesktopEntry(finalPath);
+    return finalPath;
   }
 
   return artifactPath
@@ -308,6 +318,27 @@ async function findAppBundle(dir: string): Promise<string> {
     }
   }
   throw new Error('Downloaded Beeper Desktop artifact did not contain an app bundle.')
+}
+
+async function createDesktopEntry(executablePath: string): Promise<void> {
+  const iconPath = join(homedir(), '.local/share/icons/beeper.png')
+  const desktopEntry = `[Desktop Entry]
+Name=Beeper
+Exec=${executablePath} %u
+Icon=${iconPath}
+Type=Application
+Terminal=false
+Comment=The ultimate messaging app
+Categories=Network;Chat;
+MimeType=x-scheme-handler/beeper;
+StartupWMClass=Beeper
+StartupNotify=true
+X-Desktop-File-Install-Version=0.28
+`
+  const desktopDir = join(homedir(), '.local/share/applications')
+  await mkdir(desktopDir, { recursive: true })
+  const desktopFilePath = join(desktopDir, 'Beeper.desktop')
+  await writeFile(desktopFilePath, desktopEntry, { mode: 0o644 })
 }
 
 async function findServerExecutable(dir: string): Promise<string> {

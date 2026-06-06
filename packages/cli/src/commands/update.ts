@@ -4,6 +4,7 @@ import {
   checkInstallationUpdate,
   readInstallations,
   updateServerInstallation,
+  updateDesktopInstallation,
   type Installation,
 } from '../lib/installations.js'
 import { profileStatus, startProfile, stopProfile } from '../lib/profiles.js'
@@ -33,7 +34,13 @@ export default class Update extends BeeperCommand {
     }
 
     if ((!selected || flags.desktop) && installations.desktop) {
-      results.push({ kind: 'desktop', ...(await checkDesktop(installations.desktop)) })
+      const check = await checkInstallationUpdate(installations.desktop)
+      if (check.available && !flags.check) {
+        const updated = await updateDesktopInstallation(installations.desktop)
+        results.push({ kind: 'desktop', updated: true, previousVersion: installations.desktop.version, currentVersion: updated.version, path: updated.path, action: 'Restart the app to apply the update.' })
+      } else {
+        results.push({ kind: 'desktop', ...check })
+      }
     } else if ((!selected || flags.desktop) && !installations.desktop) {
       results.push({ kind: 'desktop', installed: false, action: 'Run: beeper install desktop' })
     }
@@ -69,14 +76,6 @@ async function runningServerProfiles(): Promise<Awaited<ReturnType<typeof listTa
     if (status.running) running.push(profile)
   }
   return running
-}
-
-async function checkDesktop(installation: Installation): Promise<Record<string, unknown>> {
-  const check = await checkInstallationUpdate(installation)
-  return {
-    ...check,
-    action: 'Update Beeper Desktop in the app.',
-  }
 }
 
 async function checkCLI(): Promise<Record<string, unknown>> {
