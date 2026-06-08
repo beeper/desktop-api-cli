@@ -14,6 +14,7 @@ export default class ChatsArchive extends BeeperCommand {
     
     const client = await createClient(flags)
     const chatID = await resolveChatID(client, flags.chat, { pick: flags.pick })
-    await printData(await client.chats.update(chatID, { isArchived: true }), flags.json ? 'json' : 'human')
+    await client.chats.archive(chatID, { archived: true })
+    await printSuccess({ message: 'Chat archived', data: { chatID, archived: true } }, flags.json ? 'json' : 'human')
   }
 }
