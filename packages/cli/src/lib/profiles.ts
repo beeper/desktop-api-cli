@@ -8,8 +8,10 @@ import { promisify } from 'node:util'
 import { beeperDir, type Target } from './targets.js'
 import { readInstallations } from './installations.js'
 import { usageError } from './errors.js'
+import { ensureStartupThreadIDs, inspectStartupThreadIDs, type StartupThreadIDsState } from './server-bootstrap.js'
 
 const execFileAsync = promisify(execFile)
+const startupThreadIDsWaitMs = 15_000
 
 export type ProfileRun = {
   id: string
@@ -166,6 +168,8 @@ export async function profileStatus(target: Target): Promise<Record<string, unkn
 export async function enableProfile(target: Target): Promise<string> {
   assertProfile(target)
   if (target.type !== 'server') throw new Error('Manage Desktop start at launch in Beeper Desktop.')
+  const run = await readRun(target.id)
+  if (!run || !isRunning(run.pid)) await ensureStartupThreadIDs(target.dataDir!)
   if (process.platform === 'darwin') return enableLaunchAgent(target)
   if (process.platform === 'linux') return enableSystemdUnit(target)
   throw new Error('Beeper Server is not available on Windows.')
@@ -211,9 +215,45 @@ async function startServerProfile(target: Target): Promise<ProfileRun> {
     await rm(profileRunPath(target.id), { force: true })
   }
   if (await isReachable(target)) throw new Error(`Profile "${target.id}" is already reachable at ${target.baseURL}.`)
+  await ensureStartupThreadIDs(target.dataDir!)
   const installations = await readInstallations()
   const binary = process.env.BEEPER_SERVER_BIN || installations.server?.path
   if (!binary) throw new Error('Beeper Server is not installed. Run: beeper install server')
+  return startServerProcessWithRecovery(target, binary)
+}
+
+async function startServerProcessWithRecovery(target: Target, binary: string): Promise<ProfileRun> {
+  let run: ProfileRun
+  try {
+    run = await startServerProcess(target, binary)
+  } catch (error) {
+    const failedRun = await readRun(target.id)
+    if (failedRun && isRunning(failedRun.pid)) throw error
+    const repair = await ensureStartupThreadIDs(target.dataDir!)
+    if (repair !== 'repaired') throw error
+    return startServerProcess(target, binary)
+  }
+
+  // A fresh server can become reachable before it creates key_values. Poll
+  // read-only until the schema appears, then repair only after stopping it.
+  const state = await waitForStartupThreadIDs(target.dataDir!, startupThreadIDsWaitMs)
+  if (state !== 'missing' && state !== 'invalid') return run
+  await stopProfile(target)
+  await ensureStartupThreadIDs(target.dataDir!)
+  return startServerProcess(target, binary)
+}
+
+async function waitForStartupThreadIDs(dataDir: string, timeoutMs: number): Promise<StartupThreadIDsState | 'timeout'> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const state = await inspectStartupThreadIDs(dataDir)
+    if (state === 'missing' || state === 'invalid' || state === 'valid') return state
+    await sleep(50)
+  }
+  return 'timeout'
+}
+
+async function startServerProcess(target: Target, binary: string): Promise<ProfileRun> {
   await mkdir(profileRunDir(), { recursive: true })
   await mkdir(profileLogDir(), { recursive: true })
   const log = profileLogPath(target.id)
@@ -237,7 +277,7 @@ async function startServerProfile(target: Target): Promise<ProfileRun> {
   try {
     await waitUntilReachable(target, 15_000)
   } catch (error) {
-    await rm(profileRunPath(target.id), { force: true })
+    await stopProfile(target).catch(() => undefined)
     throw error
   }
   return run
