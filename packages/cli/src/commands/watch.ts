@@ -29,8 +29,8 @@ export default class Watch extends BeeperCommand {
       include: flags['include-type']?.length ? new Set(flags['include-type']) : undefined,
       exclude: flags['exclude-type']?.length ? new Set(flags['exclude-type']) : undefined,
     }
-    const token = await requireToken()
-    const baseURL = await getBaseURL(flags['base-url'])
+    const token = await requireToken({ target: flags.target, baseURL: flags['base-url'] })
+    const baseURL = await getBaseURL(flags['base-url'], flags.target)
     const info = await fetch(new URL('/v1/info', baseURL))
     if (!info.ok) throw new Error(`Failed to fetch /v1/info: HTTP ${info.status}`)
     const metadata = await info.json() as { endpoints?: { ws_events?: string } }

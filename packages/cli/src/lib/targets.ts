@@ -228,8 +228,8 @@ export async function getAccessToken(target?: Target): Promise<string | undefine
   return process.env.BEEPER_ACCESS_TOKEN || target?.auth?.accessToken || (await resolveTarget()).auth?.accessToken
 }
 
-export async function getBaseURL(override?: string): Promise<string> {
-  return (await resolveTarget({ baseURL: override })).baseURL
+export async function getBaseURL(override?: string, target?: string): Promise<string> {
+  return (await resolveTarget({ baseURL: override, target })).baseURL
 }
 
 function targetPath(id: string): string {
