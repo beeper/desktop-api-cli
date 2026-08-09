@@ -9,7 +9,7 @@ export default class TargetsAddDesktop extends BeeperCommand {
   static override flags = {
     port: Flags.integer({ description: 'TCP port the managed Desktop will expose its API on' }),
     default: Flags.boolean({ default: false, description: 'Set this target as the default after creation' }),
-    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment. Staging forces nightly.' }),
+    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment (production or staging)' }),
   }
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TargetsAddDesktop)
