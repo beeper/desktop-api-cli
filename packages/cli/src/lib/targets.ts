@@ -31,6 +31,7 @@ export type Target = {
   }
   serverEnv?: string
   port?: number
+  headless?: boolean
 }
 
 export type ManagedTargetType = 'desktop' | 'server'
