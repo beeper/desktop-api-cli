@@ -34,7 +34,7 @@ export default class Setup extends BeeperCommand {
     desktop: Flags.boolean({ default: false, description: 'Set up a local Beeper Desktop target' }),
     install: Flags.boolean({ default: false, description: 'Allow installing missing managed runtime' }),
     channel: Flags.string({ options: ['stable', 'nightly'], default: 'stable', description: 'Install release channel' }),
-    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment. Staging forces nightly.' }),
+    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment (production or staging)' }),
     email: Flags.string({ description: 'Sign in with an email address' }),
     username: Flags.string({ description: 'Username to use if setup creates a new account' }),
   }

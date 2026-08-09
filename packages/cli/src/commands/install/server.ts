@@ -8,7 +8,7 @@ export default class SetupInstallServer extends BeeperCommand {
   static override summary = 'Install Beeper Server locally'
   static override flags = {
     channel: Flags.string({ options: ['stable', 'nightly'], default: 'stable', description: 'Server release channel' }),
-    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment. Staging forces nightly.' }),
+    'server-env': Flags.string({ options: ['production', 'staging'], default: 'production', description: 'Server environment (production or staging)' }),
   }
 
   async run(): Promise<void> {
