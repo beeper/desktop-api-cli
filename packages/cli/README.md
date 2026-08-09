@@ -718,6 +718,12 @@ Arguments:
 | --- | --- | --- |
 | `name` | no | Target name. Defaults to the selected target. |
 
+Flags:
+
+| Flag | Type | Description |
+| --- | --- | --- |
+| `--headless` | boolean | Repair and launch an existing Desktop profile in a headless Linux session |
+
 Examples:
 
 ```sh

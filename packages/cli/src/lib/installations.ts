@@ -273,6 +273,13 @@ async function extractDesktopArtifact(artifactPath: string, destinationDir: stri
     return finalPath
   }
 
+  if (process.platform === 'linux') {
+    const finalPath = join(destinationDir, basename(artifactPath))
+    if (artifactPath !== finalPath) await rename(artifactPath, finalPath)
+    await chmod(finalPath, 0o755)
+    return finalPath
+  }
+
   return artifactPath
 }
 

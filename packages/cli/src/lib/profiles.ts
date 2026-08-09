@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { Database } from 'bun:sqlite'
 import { beeperDir, type Target } from './targets.js'
-import { readInstallations } from './installations.js'
+import { desktopInstallDir, readInstallations } from './installations.js'
 import { usageError } from './errors.js'
 
 const execFileAsync = promisify(execFile)
@@ -54,11 +55,11 @@ export async function startProfile(target: Target): Promise<ProfileRun | { id: s
 
 export async function launchDesktopApp(target?: Target): Promise<{ id: string; startedAt: string }> {
   const installations = await readInstallations().catch(() => ({ desktop: undefined }))
-  const appPath = installations.desktop?.path ?? await findDesktopAppPath()
-  const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
-  args.push('--no-enforce-app-location')
-  if (target?.port) args.push(`--pas-port=${target.port}`)
-  if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+  const appPath = installations.desktop?.path && await isBeeperDesktopApp(installations.desktop.path)
+    ? installations.desktop.path
+    : await findDesktopAppPath()
+  const headlessDataDir = target?.headless ? target.dataDir ?? defaultDesktopDataDir(target.profile) : undefined
+  const startupState = headlessDataDir ? await ensureStartupThreadIDs(headlessDataDir) : undefined
   const env = target?.dataDir
     ? {
         ...process.env,
@@ -67,8 +68,101 @@ export async function launchDesktopApp(target?: Target): Promise<{ id: string; s
         BEEPER_USER_DATA_DIR: target.dataDir,
       }
     : process.env
-  spawn('open', args, { detached: true, stdio: 'ignore', env }).unref()
+
+  let child = spawnDesktopProcess(appPath, target, env)
+  if (process.platform === 'linux' && headlessDataDir && (startupState === 'missing-database' || startupState === 'missing-schema')) {
+    const state = await waitForStartupThreadIDs(headlessDataDir, 15_000)
+    if (state === 'repaired') {
+      await stopDesktopProcess(child)
+      child = spawnDesktopProcess(appPath, target, env)
+    } else if (state !== 'valid') {
+      await stopDesktopProcess(child)
+      throw new Error('Desktop profile database did not become ready for headless startup repair. Try again after Desktop finishes initializing the profile.')
+    }
+  }
+  child.unref()
   return { id: target?.id ?? 'desktop', startedAt: new Date().toISOString() }
+}
+
+function spawnDesktopProcess(appPath: string | undefined, target: Target | undefined, env: NodeJS.ProcessEnv): ReturnType<typeof spawn> {
+  if (process.platform === 'darwin') {
+    const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
+    args.push(...desktopLaunchArgs(target))
+    return spawn('open', args, { detached: true, stdio: 'ignore', env })
+  }
+  if (process.platform === 'linux' || process.platform === 'win32') {
+    if (!appPath) throw new Error('Beeper Desktop was not found. Install Beeper Desktop and try again.')
+    return spawn(appPath, desktopLaunchArgs(target), { detached: true, stdio: 'ignore', env })
+  }
+  throw new Error(`Beeper Desktop launch is not supported on ${process.platform}.`)
+}
+
+function desktopLaunchArgs(target?: Target): string[] {
+  const args = ['--no-enforce-app-location']
+  if (target?.port) args.push(`--pas-port=${target.port}`)
+  if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+  if (target?.headless) args.push('--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader')
+  return args
+}
+
+type StartupThreadIDsState = 'missing-database' | 'missing-schema' | 'valid' | 'repaired'
+
+async function ensureStartupThreadIDs(dataDir: string): Promise<StartupThreadIDsState> {
+  const dbPath = join(dataDir, 'index.db')
+  if (!await pathExists(dbPath)) return 'missing-database'
+  const db = new Database(dbPath)
+  try {
+    const table = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'key_values' LIMIT 1").get()
+    if (!table) return 'missing-schema'
+    const row = db.query("SELECT value FROM key_values WHERE key = 'startupThreadIDs' LIMIT 1").get() as { value?: string } | null
+    if (row?.value) {
+      try {
+        if (Array.isArray(JSON.parse(row.value))) return 'valid'
+      } catch {
+        // Replace malformed JSON with the same empty-list fallback used for a missing row.
+      }
+    }
+    db.run(`INSERT INTO key_values (key, value) VALUES ('startupThreadIDs', '[]')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    return 'repaired'
+  } finally {
+    db.close()
+  }
+}
+
+async function waitForStartupThreadIDs(dataDir: string, timeoutMs: number): Promise<StartupThreadIDsState | undefined> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const state = await ensureStartupThreadIDs(dataDir)
+      if (state === 'valid' || state === 'repaired') return state
+    } catch {
+      // Desktop can hold a short SQLite write lock while it creates the profile schema.
+    }
+    await Bun.sleep(50)
+  }
+  return undefined
+}
+
+async function stopDesktopProcess(child: ReturnType<typeof spawn>): Promise<void> {
+  if (!child.pid) return
+  const processGroup = -child.pid
+  try {
+    process.kill(processGroup, 'SIGTERM')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+    throw error
+  }
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await Bun.sleep(100)
+    try {
+      process.kill(processGroup, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+      throw error
+    }
+  }
+  process.kill(processGroup, 'SIGKILL')
 }
 
 export async function findDesktopAppPath(): Promise<string | undefined> {
@@ -96,6 +190,12 @@ export async function findDesktopAppPath(): Promise<string | undefined> {
   }
 
   if (process.platform === 'linux') {
+    const installedDirEntries = await readdir(desktopInstallDir()).catch(() => [])
+    for (const entry of installedDirEntries.sort()) {
+      if (!entry.toLowerCase().includes('beeper')) continue
+      const path = join(desktopInstallDir(), entry)
+      if (await isBeeperDesktopApp(path)) return path
+    }
     for (const path of ['/usr/bin/beeper', '/usr/local/bin/beeper']) {
       if (await pathExists(path)) return path
     }
