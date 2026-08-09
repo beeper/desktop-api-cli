@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { beeperDir, type Target } from './targets.js'
-import { readInstallations } from './installations.js'
+import { desktopInstallDir, readInstallations } from './installations.js'
 import { usageError } from './errors.js'
 
 const execFileAsync = promisify(execFile)
@@ -54,11 +54,9 @@ export async function startProfile(target: Target): Promise<ProfileRun | { id: s
 
 export async function launchDesktopApp(target?: Target): Promise<{ id: string; startedAt: string }> {
   const installations = await readInstallations().catch(() => ({ desktop: undefined }))
-  const appPath = installations.desktop?.path ?? await findDesktopAppPath()
-  const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
-  args.push('--no-enforce-app-location')
-  if (target?.port) args.push(`--pas-port=${target.port}`)
-  if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+  const appPath = installations.desktop?.path && await isBeeperDesktopApp(installations.desktop.path)
+    ? installations.desktop.path
+    : await findDesktopAppPath()
   const env = target?.dataDir
     ? {
         ...process.env,
@@ -67,8 +65,23 @@ export async function launchDesktopApp(target?: Target): Promise<{ id: string; s
         BEEPER_USER_DATA_DIR: target.dataDir,
       }
     : process.env
-  spawn('open', args, { detached: true, stdio: 'ignore', env }).unref()
+
+  if (process.platform === 'darwin') {
+    const args = appPath ? ['-n', appPath, '--args'] : ['-n', '-a', 'Beeper', '--args']
+    args.push(...desktopLaunchArgs(target))
+    spawn('open', args, { detached: true, stdio: 'ignore', env }).unref()
+  } else if (process.platform === 'linux' || process.platform === 'win32') {
+    if (!appPath) throw new Error('Beeper Desktop was not found. Install Beeper Desktop and try again.')
+    spawn(appPath, desktopLaunchArgs(target), { detached: true, stdio: 'ignore', env }).unref()
+  }
   return { id: target?.id ?? 'desktop', startedAt: new Date().toISOString() }
+}
+
+function desktopLaunchArgs(target?: Target): string[] {
+  const args = ['--no-enforce-app-location']
+  if (target?.port) args.push(`--pas-port=${target.port}`)
+  if (target?.serverEnv) args.push(`--server-env=${target.serverEnv}`)
+  return args
 }
 
 export async function findDesktopAppPath(): Promise<string | undefined> {
@@ -96,6 +109,12 @@ export async function findDesktopAppPath(): Promise<string | undefined> {
   }
 
   if (process.platform === 'linux') {
+    const installedDirEntries = await readdir(desktopInstallDir()).catch(() => [])
+    for (const entry of installedDirEntries.sort()) {
+      if (!entry.toLowerCase().includes('beeper')) continue
+      const path = join(desktopInstallDir(), entry)
+      if (await isBeeperDesktopApp(path)) return path
+    }
     for (const path of ['/usr/bin/beeper', '/usr/local/bin/beeper']) {
       if (await pathExists(path)) return path
     }
