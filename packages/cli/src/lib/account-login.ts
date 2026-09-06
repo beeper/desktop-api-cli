@@ -112,7 +112,9 @@ export async function runGuidedAccountLogin(client: BeeperDesktop, bridgeID: str
         }
 
         if (options.nonInteractive) throw new Error(`Missing required cookie ${id}. Pass --cookie ${id}=... or run without --non-interactive.`)
-        fields[id] = await promptSecret(`${id}: `)
+        const optional = (field as CookieField).required === false
+        const value = await promptSecret(`${id}${optional ? ' (optional, Enter to skip if not found)' : ''}: `)
+        if (value || !optional) fields[id] = value
       }
       session = await client.bridges.loginSessions.steps.submit(step.stepID, { bridgeID, loginSessionID: session.loginSessionID, type: 'cookies', fields, source: usedWebView ? 'webview' : 'api' })
       continue
