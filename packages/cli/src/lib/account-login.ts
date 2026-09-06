@@ -1,5 +1,8 @@
 import { createInterface } from 'node:readline/promises'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { stdin as input, stderr as output } from 'node:process'
 import QRCode from 'qrcode'
 import type { LoginSession } from '@beeper/desktop-api/resources/bridges.js'
@@ -13,6 +16,7 @@ export type AccountLoginOptions = {
   nonInteractive?: boolean
   webview?: boolean
   webviewBackend?: 'auto' | 'chrome' | 'webkit'
+  webviewBrowserPath?: string
   webviewTimeoutMs?: number
 }
 
@@ -173,12 +177,24 @@ export function setWebViewConstructorForTest(constructor: WebViewConstructor | u
 }
 
 async function collectCookieFieldsWithWebView(step: CookieLoginStep, options: AccountLoginOptions): Promise<Record<string, string>> {
-  const BunRuntime = (globalThis as { Bun?: { WebView?: WebViewConstructor } }).Bun
+  const BunRuntime = (globalThis as { Bun?: { WebView?: WebViewConstructor; which?(name: string): string | null } }).Bun
   const WebView = webViewConstructorOverride ?? BunRuntime?.WebView
   if (!WebView) throw new Error('Bun.WebView is not available in this Bun runtime.')
 
   const backend = options.webviewBackend && options.webviewBackend !== 'auto' ? options.webviewBackend : undefined
-  const view = new WebView(backend ? { backend } : undefined)
+  if (options.webviewBrowserPath && backend === 'webkit') throw new Error('--webview-browser-path requires the chrome backend.')
+  const browserPath = !options.nonInteractive && (backend === 'chrome' || (!backend && process.platform !== 'darwin'))
+    ? options.webviewBrowserPath ?? findChromiumBrowser(BunRuntime?.which)
+    : undefined
+  const browser = browserPath ? await launchVisibleBrowser(browserPath) : undefined
+  const usesChrome = backend === 'chrome' || Boolean(browser)
+  let view: InstanceType<WebViewConstructor>
+  try {
+    view = new WebView(browser ? { backend: { type: 'chrome', url: browser.url } } : backend ? { backend } : undefined)
+  } catch (error) {
+    await browser?.close()
+    throw error
+  }
   const found: Record<string, string> = {}
   const fields = normalizeCookieFields(step.fields)
   const headerFields = fields.filter(field => field.sources.some(source => source.type === 'request_header'))
@@ -189,7 +205,7 @@ async function collectCookieFieldsWithWebView(step: CookieLoginStep, options: Ac
   }
 
   try {
-    if ((step.userAgent || headerFields.length > 0 || fields.some(field => field.sources.some(source => source.type === 'cookie' && source.cookieDomain))) && backend === 'chrome' && view.cdp) {
+    if ((step.userAgent || headerFields.length > 0 || fields.some(field => field.sources.some(source => source.type === 'cookie' && source.cookieDomain))) && usesChrome && view.cdp) {
       await view.navigate('about:blank')
       if (step.userAgent) await view.cdp('Emulation.setUserAgentOverride', { userAgent: step.userAgent })
       await setupChromeNetworkCapture(view, headerFields, found)
@@ -198,7 +214,9 @@ async function collectCookieFieldsWithWebView(step: CookieLoginStep, options: Ac
     }
 
     output.write(`webview: opening ${step.url}\n`)
-    if (backend === 'chrome') {
+    if (browser) {
+      output.write('webview: complete sign-in in the opened browser window.\n')
+    } else if (backend === 'chrome') {
       output.write('webview: complete sign-in in the opened Chrome tab. If no tab appears, enable Chrome remote debugging and retry.\n')
     } else {
       output.write('webview: running in headless mode; cookie fields will be collected if the page can complete without manual input.\n')
@@ -227,7 +245,48 @@ async function collectCookieFieldsWithWebView(step: CookieLoginStep, options: Ac
     const missing = fields.filter(field => field.required && found[field.id] === undefined).map(field => field.id)
     throw new Error(`Timed out waiting for cookie fields${missing.length ? `: ${missing.join(', ')}` : ''}.`)
   } finally {
+    if (browser && view.cdp) await view.cdp('Browser.close').catch(() => undefined)
     view.close()
+    await browser?.close()
+  }
+}
+
+function findChromiumBrowser(which: ((name: string) => string | null) | undefined): string | undefined {
+  return process.env.BUN_CHROME_PATH || [
+    'google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser',
+    'brave-browser', 'microsoft-edge', 'opera-gx', 'opera', 'vivaldi',
+  ].map(name => which?.(name)).find((path): path is string => Boolean(path))
+}
+
+async function launchVisibleBrowser(path: string): Promise<{ url: string; close(): Promise<void> }> {
+  const profile = await mkdtemp(join(tmpdir(), 'beeper-webview-'))
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() })
+  const port = server.port
+  await server.stop(true)
+  const process = spawn(path, [`--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: 'ignore' })
+  let launchError: Error | undefined
+  process.once('error', error => { launchError = error })
+
+  try {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (launchError) throw launchError
+      if (process.exitCode !== null) throw new Error(`Browser exited with code ${process.exitCode}.`)
+      const endpoint = await fetch(`http://127.0.0.1:${port}/json/version`).then(response => response.json() as Promise<{ webSocketDebuggerUrl?: string }>).catch(() => undefined)
+      if (endpoint?.webSocketDebuggerUrl) return {
+        url: endpoint.webSocketDebuggerUrl,
+        close: async () => {
+          process.kill()
+          await Promise.race([new Promise<void>(resolve => process.once('exit', () => resolve())), sleep(1000)])
+          await rm(profile, { recursive: true, force: true })
+        },
+      }
+      await sleep(100)
+    }
+    throw new Error(`Timed out starting browser ${path}.`)
+  } catch (error) {
+    process.kill()
+    await rm(profile, { recursive: true, force: true })
+    throw error
   }
 }
 
