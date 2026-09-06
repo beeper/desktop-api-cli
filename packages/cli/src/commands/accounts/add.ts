@@ -132,7 +132,10 @@ function printAvailableAccounts(items: AccountType[]): void {
   process.stdout.write('Run `beeper bridges list` for the scriptable catalog or `beeper bridges show <bridge>` for login flows.\n')
 }
 
-function resolveAccountType(items: AccountType[], input: string): AccountType {
+export function resolveAccountType(items: AccountType[], input: string): AccountType {
+  const byID = items.find(item => item.id === input)
+  if (byID) return byID
+
   const normalizedInput = normalize(input)
   const exact = items.filter(item => [
     item.id,
