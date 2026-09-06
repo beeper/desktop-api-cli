@@ -28,7 +28,10 @@ export default class BridgesShow extends BeeperCommand {
   }
 }
 
-function resolveBridge(items: Array<Record<string, unknown>>, input: string): Record<string, unknown> {
+export function resolveBridge(items: Array<Record<string, unknown>>, input: string): Record<string, unknown> {
+  const byID = items.find(item => item.id === input)
+  if (byID) return byID
+
   const normalizedInput = normalize(input)
   const exact = items.filter(item => [
     item.id,
